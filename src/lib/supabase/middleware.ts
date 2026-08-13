@@ -2,6 +2,11 @@ import { createServerClient } from "@supabase/ssr"
 import { NextResponse, type NextRequest } from "next/server"
 
 export async function updateSession(request: NextRequest) {
+  // Тест/хөгжүүлэлтийн үед login шаардахгүй — sidebar-ын хэрэглэгч солигчоор дүр сольж ажиллана
+  if (process.env.NEXT_PUBLIC_DEV_NO_AUTH === "true") {
+    return NextResponse.next({ request })
+  }
+
   let supabaseResponse = NextResponse.next({ request })
 
   const supabase = createServerClient(
