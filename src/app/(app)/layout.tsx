@@ -4,6 +4,7 @@ import * as React from "react"
 import { usePathname } from "next/navigation"
 
 import { AppSidebar } from "@/components/app-sidebar"
+import { ModeToggle } from "@/components/mode-toggle"
 import { useDevUser } from "@/components/dev-user-provider"
 import { canAccess } from "@/lib/permissions"
 import {
@@ -76,6 +77,9 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
                 ))}
               </BreadcrumbList>
             </Breadcrumb>
+          </div>
+          <div className="ml-auto px-4">
+            <ModeToggle />
           </div>
         </header>
         <div className="flex flex-1 flex-col gap-4 p-4 pt-0">
