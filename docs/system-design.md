@@ -29,7 +29,7 @@ MASTER DATA                          TRANSACTIONS
 │    ├── Category                    ORDER / ORDER_ITEM
 │    └── Unit                           ↓
 ├── Products                         Production Batch (өдрийн нэгтгэл)
-│    ├── Dish (хоол)                    ↓
+│    ├── Product (хоол)                 ↓
 │    └── Technology Card             Material Requirement
 ├── Customers                           ↓
 │    └── Customer Master             Stock Check ──┬── Хүрэлцээтэй → Production
@@ -164,11 +164,11 @@ flowchart TD
 erDiagram
     customers ||--o{ orders : ""
     orders ||--o{ order_items : ""
-    order_items }o--|| dishes : ""
+    order_items }o--|| products : ""
     order_items }o--|| production_batches : "өдөр+хоолоор нэгтгэнэ"
     order_items ||--o{ deliveries : "захиалагч бүрээр"
     production_batches ||--o{ station_tasks : "станц бүрт"
-    dishes ||--|| tech_cards : "1 идэвхтэй ТК"
+    products ||--|| tech_cards : "1 идэвхтэй ТК"
     tech_cards ||--o{ tech_card_items : "орцууд"
     tech_card_items }o--|| materials : ""
     suppliers ||--o{ material_suppliers : ""
@@ -201,16 +201,20 @@ erDiagram
 - **Хасагдсан талбарууд (2026-08-14):** `category` (мах/ногоо/сав баглаа гэсэн ангилал), `registration_no` (регистрийн №), `payment_terms` (төлбөрийн нөхцөл) — шаардлагагүй гэж үзэв; `contact_person` + `phone` → `contact` нэг талбарт нэгтгэв. Мөн `code`-ыг гараас оруулдаг байсныг автомат болгов. Шилжилтийг `supabase/migrations/0004_suppliers_simplify.sql` хийнэ.
 
 **materials** — материалын лавлах (хүнс + сав баглаа + бусад)
-- `id`, `code`, `name`, `unit (кг|л|ш|гр...)`, `category`, `min_stock` (доод үлдэгдлийн анхааруулга), `is_active`
+- `id`, `code (MAT-001, автоматаар үүснэ)`, `name`, `base_unit (kg|g|l|ml|pcs — canonical, UI-д кг/гр/л/мл/ш)`, `category (food|packaging|other)`, `min_stock` (доод үлдэгдлийн анхааруулга, base_unit-ээр), `is_active`, `created_at`, `updated_at`
+- **Шийдвэрүүд (2026-08-15, `0006_materials.sql`):** `unit` → `base_unit` нэрлэж canonical (латин) утгаар хадгална — хөрвүүлэлт зөвхөн харагдацын асуудал. Нэр (case-insensitive) UNIQUE — давхар материал үлдэгдэл/хэрэгцээний тооцоог салгаж зөрүүлэх тул. Үлдэгдэл, үнэ, нийлүүлэгчийг энд хадгалахгүй (ledger + `material_suppliers`-ийн ажил). Код олголт, устгахгүй-идэвхгүй болгох, JSON import — customers/suppliers-тэй ижил зарчим.
+- **ТК-тай харьцах дүрэм:** `tech_card_items`-ийн брутто/нетто жин материалын `base_unit`-ээр хадгалагдана (0.15 kg г.м.) — тусдаа `unit` талбар хэрэггүй, UI дээр л кг↔гр хөрвүүлж харуулна.
 
 **material_suppliers** — материал ↔ нийлүүлэгч (many-to-many: нэг материалыг олон нийлүүлэгчээс авч болно)
 - `id`, `material_id`, `supplier_id`, `supplier_material_code`, `last_price`, `lead_time_days`, `is_preferred`, `is_active`
 
-**dishes** — хоолны нэр төрөл
-- `id`, `name`, `is_active`
+**products** — хоолны (эцсийн бүтээгдэхүүний) лавлах
+- `id`, `code (PRD-001, автоматаар үүснэ)`, `name`, `portion_weight` (1 порцын гарцын жин, граммаар, сонголттой), `description`, `is_active`, `created_at`, `updated_at`
+- **Шийдвэрүүд (2026-08-15, `0007_dishes.sql` → `0008_dishes_to_products.sql`):** Анх `dishes` нэртэй минимал (зөвхөн нэр) үүсгэснийг `products` болгож өргөтгөв — код, порцын жин, тайлбар нэмэгдсэн. `portion_weight` энд байх тул tech_cards-д гарцын жинг давхардуулж хадгалахгүй (нэг эх сурвалж). Ангилал, үнэ зэрэг талбар одоохондоо нэмэхгүй; орц/заавар нь ТК-д тодорхойлогдоно. Нэр (case-insensitive) UNIQUE — давхар хоол захиалга/батчийн нэгтгэлийг салгаж зөрүүлэх тул. Код олголт, устгахгүй-идэвхгүй болгох, JSON import — бусад лавлахтай ижил зарчим.
 
 **tech_cards** — технологийн карт (хувилбартай: орц өөрчлөгдвөл шинэ хувилбар үүсгэж, хуучин захиалгын түүх хэвээр үлдэнэ)
-- `id`, `dish_id`, `version`, `portion_yield_g` (1 порцын гарц, гр), `instructions`, `is_active`
+- `id`, `product_id`, `version`, `instructions`, `is_active`
+- *(1 порцын гарцын жин `products.portion_weight`-д хадгалагдана — энд давхардуулахгүй)*
 
 **tech_card_items** — картын орц (1 порцод ногдох)
 - `id`, `tech_card_id`, `material_id`, `brutto_qty`, `netto_qty`, `unit`, `station (prep|hot|packaging)` — тухайн орц аль станцад хэрэглэгдэхийг заана
@@ -221,10 +225,10 @@ erDiagram
 - `id`, `order_no (ORD-000123)`, `customer_id`, `order_date`, `production_date`, `delivery_date`, `delivery_time` (төлөвлөгөө), `status (draft|confirmed|in_production|packed|delivered|closed)`, `note`, `created_by`, `created_at`
 
 **order_items** — захиалгын мөр
-- `id`, `order_id`, `dish_id`, `tech_card_id` (баталсан үеийн хувилбарыг хадгална), `qty` (порцын тоо), `unit_price`, `note`
+- `id`, `order_id`, `product_id`, `tech_card_id` (баталсан үеийн хувилбарыг хадгална), `qty` (порцын тоо), `unit_price`, `note`
 
 **production_batches** — өдрийн үйлдвэрлэлийн нэгтгэл (захиалгууд батлагдахад автоматаар үүснэ/шинэчлэгдэнэ)
-- `id`, `production_date`, `dish_id`, `tech_card_id`, `total_qty` (Σ order_items.qty), `status (planned|in_production|done)`
+- `id`, `production_date`, `product_id`, `tech_card_id`, `total_qty` (Σ order_items.qty), `status (planned|in_production|done)`
 
 **station_tasks** — станцын ажлын хуудас (батчаас үүснэ — захиалагч бүрээр биш, нэгтгэсэн тоогоор)
 - `id`, `production_batch_id`, `station`, `status (pending|in_progress|done)`, `started_at`, `finished_at`, `done_by`, `note`
@@ -248,7 +252,7 @@ erDiagram
 ### Гол тооцоолол
 
 ```
-Батчийн нийт порц         = Σ order_items.qty  (production_date + dish_id бүрээр)
+Батчийн нийт порц         = Σ order_items.qty  (production_date + product_id бүрээр)
 Станцын хэрэгцээ (нетто)  = tech_card_items.netto_qty × батчийн нийт порц
 Агуулахын зарлага (брутто) = tech_card_items.brutto_qty × батчийн нийт порц
 Өдрийн нэгдсэн зарлага    = Σ (бүх батчийн брутто хэрэгцээ) материал бүрээр
@@ -261,35 +265,63 @@ erDiagram
 
 ## 6. Дэлгэцүүд (UI модулиуд)
 
-| Зам | Дэлгэц | Хэн хэрэглэх |
-|---|---|---|
-| `/login` | Нэвтрэх *(тест горимд ашиглахгүй, Auth идэвхжихэд буцаж орно)* | Бүгд |
-| `/` | Нүүр — өдрийн тойм: захиалга, батчууд, хүрэлцээний анхааруулга, станцуудын явц | Менежер |
-| `/customers` | Захиалагчийн лавлах (CRUD) | Менежер |
-| `/suppliers` | Нийлүүлэгчийн лавлах (CRUD) + материалын холбоо, үнэ | Менежер |
-| `/materials` | Материалын лавлах (CRUD) | Менежер |
-| `/tech-cards` | ТК-ийн жагсаалт, шинээр үүсгэх/хувилбарлах | Менежер |
-| `/orders` | Захиалгын жагсаалт, шинэ захиалга бүртгэх (захиалагч сонгоно) | Менежер |
-| `/orders/[id]` | Захиалгын дэлгэрэнгүй: мөрүүд, төлөв, хүргэлт | Менежер |
-| `/production` | Өдрийн батчууд, материалын хэрэгцээ vs үлдэгдэл (хүрэлцээний хүснэгт) | Менежер, Нярав |
-| `/stations/[station]` | Станцын ажлын хуудас — батчийн нэгтгэсэн тоогоор (таблет дээр том товчтой, энгийн UI) | Станцын ажилтан |
-| `/warehouse` | Үлдэгдэл, ledger харах | Нярав |
-| `/warehouse/receipts` | Бараа хүлээн авах (нийлүүлэгч, баримтын мөрүүд) | Нярав |
-| `/warehouse/issues` | Зарлагын хүсэлтүүд, баталгаажуулах | Нярав |
-| `/deliveries` | Хүргэлт бүртгэх (захиалгын мөр бүрээр бодит тоо) | Хүргэлт |
-| `/reports` | Зарцуулалт (норм vs бодит), нийлүүлэгчээр татан авалт, үлдэгдэл, хүргэлтийн зөрүү | Менежер |
+| Зам | Дэлгэц | Хэн хэрэглэх | Төлөв |
+|---|---|---|---|
+| `/login` | Нэвтрэх *(тест горимд ашиглахгүй, Auth идэвхжихэд буцаж орно)* | Бүгд | ✅ (тест горимд идэвхгүй) |
+| `/` | Нүүр — өдрийн тойм: захиалга, батчууд, хүрэлцээний анхааруулга, станцуудын явц | Менежер | — |
+| `/customers` | Захиалагчийн лавлах (CRUD) | Менежер | ✅ 2026-08-14 |
+| `/suppliers` | Нийлүүлэгчийн лавлах (CRUD) + материалын холбоо, үнэ | Менежер | ✅ 2026-08-14 (материалын холбоо хараахан үгүй) |
+| `/materials` | Материалын лавлах (CRUD) | Менежер | ✅ 2026-08-15 |
+| `/products` | Хоолны (бүтээгдэхүүний) лавлах (CRUD) | Менежер | ✅ 2026-08-15 |
+| `/tech-cards` | ТК-ийн жагсаалт, шинээр үүсгэх/хувилбарлах | Менежер | — |
+| `/orders` | Захиалгын жагсаалт, шинэ захиалга бүртгэх (захиалагч сонгоно) | Менежер | — |
+| `/orders/[id]` | Захиалгын дэлгэрэнгүй: мөрүүд, төлөв, хүргэлт | Менежер | — |
+| `/production` | Өдрийн батчууд, материалын хэрэгцээ vs үлдэгдэл (хүрэлцээний хүснэгт) | Менежер, Нярав | — |
+| `/stations/[station]` | Станцын ажлын хуудас — батчийн нэгтгэсэн тоогоор (таблет дээр том товчтой, энгийн UI) | Станцын ажилтан | — |
+| `/warehouse` | Үлдэгдэл, ledger харах | Нярав | — |
+| `/warehouse/receipts` | Бараа хүлээн авах (нийлүүлэгч, баримтын мөрүүд) | Нярав | — |
+| `/warehouse/issues` | Зарлагын хүсэлтүүд, баталгаажуулах | Нярав | — |
+| `/deliveries` | Хүргэлт бүртгэх (захиалгын мөр бүрээр бодит тоо) | Хүргэлт | — |
+| `/reports` | Зарцуулалт (норм vs бодит), нийлүүлэгчээр татан авалт, үлдэгдэл, хүргэлтийн зөрүү | Менежер | — |
 
 ---
 
 ## 7. Хэрэгжүүлэлтийн дараалал (санал)
 
-1. **Үе 1 — Master data:** Хэрэглэгч солигч (login-гүй тест горим) ✓, лавлахууд — материал, хоол, **захиалагч, нийлүүлэгч**, Технологийн карт CRUD
+1. **Үе 1 — Master data** *(хийгдэж байна)*: Хэрэглэгч солигч (login-гүй тест горим) ✅, лавлахууд — захиалагч ✅, нийлүүлэгч ✅, материал ✅, хоол ✅, Технологийн карт CRUD ⬜
 2. **Үе 2 — Захиалга ба нэгтгэл:** Захиалга бүртгэх (захиалагч сонгох), батлахад батч автоматаар үүсэх + материалын хэрэгцээ, хүрэлцээний хүснэгт
 3. **Үе 3 — Станцууд:** Станц бүрийн дэлгэц (батчийн тоогоор), төлөв солих урсгал
 4. **Үе 4 — Агуулах:** Орлогын баримт (header/detail), зарлагын хүсэлт баталгаажуулах, ledger + үлдэгдэл, доод үлдэгдлийн анхааруулга
 5. **Үе 5 — Хүргэлт ба тайлан:** Хүргэлтийн бүртгэл, зөрүү ба зарцуулалтын тайлан, нийлүүлэгчээр татан авалтын тайлан
 6. **Үе 6 — Auth & RLS:** Supabase Auth-ыг идэвхжүүлж, хэрэглэгч солигчийг жинхэнэ login-оор солих, RLS бодлого нэмэх
 7. **Үе 7 (ирээдүй) — Худалдан авалт:** Дутуу материалаас худалдан авалтын захиалга (PO) үүсгэх, `material_suppliers`-ийн үнэ/lead time ашиглан нийлүүлэгч санал болгох — "захиалга өөрөө худалдан авах хэрэгцээг бий болгодог" түвшин
+
+### Хэрэгжсэн зүйлс (2026-08-15-ны байдлаар)
+
+**Суурь бүтэц:**
+- Next.js (App Router) + Supabase client + shadcn/ui (base-nova style, Base UI суурьтай) + Tailwind CSS v4
+- Sidebar layout: `(app)` route group, breadcrumb, "Лавлагаа" collapsible цэс (`src/components/app-sidebar.tsx`)
+- **Dark/light mode** — shadcn theming: `next-themes` + `ThemeProvider` (system default), header-т `ModeToggle` (Цайвар/Бараан/Систем), CSS хувьсагчид `globals.css`-д oklch-ээр
+- **Тест горимын дүрийн систем** — `DevUserProvider` + `UserSwitcher` (mock хэрэглэгчид `src/lib/dev-users.ts`), зам бүрийн эрх `src/lib/permissions.ts`-ийн `PAGE_ROLES`, эрхгүй хуудсанд "Хандах эрхгүй" мэдэгдэл
+
+**Master data дэлгэцүүд** (гурвуулаа ижил бүтэцтэй — жагсаалт + хайлт, нэмэх/засах dialog, JSON import, Идэвхтэй/Идэвхгүй toggle, DELETE-гүй):
+- `/customers` — Захиалагч (2026-08-14)
+- `/suppliers` — Нийлүүлэгч (2026-08-14)
+- `/materials` — Материал (2026-08-15): ангиллын filter, base_unit/category select, доод үлдэгдэл
+- `/products` — Хоол (2026-08-15): код, нэр, порцын жин, тайлбар — орц нь ТК-ийн ажил
+
+**Migration-ууд** (Supabase Dashboard > SQL Editor дээр гараар ажиллуулна):
+
+| Файл | Агуулга |
+|---|---|
+| `0001_customers_suppliers.sql` | customers, suppliers хүснэгт + `set_updated_at()` |
+| `0002_dev_disable_rls.sql` | Тест горимд RLS унтраах |
+| `0003_customers_simplify.sql` | customers хялбарчлал (contact нэгтгэл, type хасах) |
+| `0004_suppliers_simplify.sql` | suppliers хялбарчлал |
+| `0005_db_code_generation.sql` | CUS-/SUP- кодыг DB trigger + sequence-ээр олгох |
+| `0006_materials.sql` | materials хүснэгт: base_unit/category CHECK, нэр UNIQUE (case-insensitive), MAT- код, RLS унтраах |
+| `0007_dishes.sql` | dishes хүснэгт: нэр UNIQUE (case-insensitive), RLS унтраах *(0008-аар products болсон)* |
+| `0008_dishes_to_products.sql` | dishes → products: PRD- код (sequence + trigger), portion_weight, description; 0007 ажилласан/ажиллаагүй аль ч тохиолдолд зөв |
 
 ---
 

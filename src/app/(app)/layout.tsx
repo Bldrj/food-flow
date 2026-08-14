@@ -25,6 +25,8 @@ const BREADCRUMBS: Record<string, string[]> = {
   "/": ["Нүүр"],
   "/customers": ["Лавлагаа", "Захиалагч"],
   "/suppliers": ["Лавлагаа", "Нийлүүлэгч"],
+  "/materials": ["Лавлагаа", "Материал"],
+  "/products": ["Лавлагаа", "Хоол"],
 }
 
 function AccessDenied({ roleLabel }: { roleLabel: string }) {

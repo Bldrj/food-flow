@@ -34,6 +34,8 @@ import { canAccess } from "@/lib/permissions"
 const MASTER_DATA_ITEMS = [
   { title: "Захиалагч", url: "/customers" },
   { title: "Нийлүүлэгч", url: "/suppliers" },
+  { title: "Материал", url: "/materials" },
+  { title: "Хоол", url: "/products" },
 ]
 
 export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
