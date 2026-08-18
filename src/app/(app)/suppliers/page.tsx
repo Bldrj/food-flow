@@ -4,6 +4,8 @@ import * as React from "react"
 
 import { createClient } from "@/lib/supabase/client"
 import { type Supplier } from "@/lib/types"
+import { cn } from "@/lib/utils"
+import { exportToExcel, todayStamp } from "@/lib/export-excel"
 
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -23,6 +25,13 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { Input } from "@/components/ui/input"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import { Label } from "@/components/ui/label"
 import { Skeleton } from "@/components/ui/skeleton"
 import {
@@ -36,6 +45,14 @@ import {
 import { Textarea } from "@/components/ui/textarea"
 import {
   BracesIcon,
+  ArrowDownIcon,
+  ArrowUpIcon,
+  ChevronLeftIcon,
+  ChevronRightIcon,
+  ChevronsLeftIcon,
+  ChevronsRightIcon,
+  ChevronsUpDownIcon,
+  DownloadIcon,
   MoreHorizontalIcon,
   PlusIcon,
   SearchIcon,
@@ -53,6 +70,55 @@ const EMPTY_FORM: FormState = {
   contact: "",
   email: "",
   address: "",
+}
+
+const PAGE_SIZES = [10, 25, 50, 100]
+
+type SortKey = "code" | "name" | "contact" | "email" | "is_active"
+type SortDir = "asc" | "desc"
+
+function SortHead({
+  col,
+  sortKey,
+  sortDir,
+  onSort,
+  children,
+  className,
+}: {
+  col: SortKey
+  sortKey: SortKey
+  sortDir: SortDir
+  onSort: (key: SortKey) => void
+  children: React.ReactNode
+  className?: string
+}) {
+  const active = sortKey === col
+  const Icon = !active
+    ? ChevronsUpDownIcon
+    : sortDir === "asc"
+      ? ArrowUpIcon
+      : ArrowDownIcon
+  return (
+    <TableHead className={className}>
+      <button
+        type="button"
+        onClick={() => onSort(col)}
+        className={cn(
+          "-ml-2 inline-flex h-8 items-center gap-1 rounded-md px-2 hover:bg-accent hover:text-accent-foreground",
+          active && "text-foreground",
+        )}
+      >
+        {children}
+        <Icon className="size-3.5 text-muted-foreground" />
+      </button>
+    </TableHead>
+  )
+}
+
+/** Хайлтын PostgREST `or` filter — code/name/contact дээр ilike */
+function searchFilter(q: string) {
+  const safe = q.replace(/[%,()]/g, " ").trim()
+  return `code.ilike.%${safe}%,name.ilike.%${safe}%,contact.ilike.%${safe}%`
 }
 
 const JSON_PLACEHOLDER = `[
@@ -99,6 +165,13 @@ export default function SuppliersPage() {
   const [loading, setLoading] = React.useState(true)
   const [loadError, setLoadError] = React.useState<string | null>(null)
   const [search, setSearch] = React.useState("")
+  const [debouncedSearch, setDebouncedSearch] = React.useState("")
+  const [page, setPage] = React.useState(0)
+  const [pageSize, setPageSize] = React.useState(25)
+  const [total, setTotal] = React.useState(0)
+  const [sortKey, setSortKey] = React.useState<SortKey>("code")
+  const [sortDir, setSortDir] = React.useState<SortDir>("asc")
+  const [exporting, setExporting] = React.useState(false)
 
   const [dialogOpen, setDialogOpen] = React.useState(false)
   const [editing, setEditing] = React.useState<Supplier | null>(null)
@@ -111,32 +184,53 @@ export default function SuppliersPage() {
   const [jsonError, setJsonError] = React.useState<string | null>(null)
   const [importing, setImporting] = React.useState(false)
 
+  // Хайлтыг 300ms debounce хийж, хуудсыг эхнээс нь эхлүүлнэ
+  React.useEffect(() => {
+    const t = setTimeout(() => {
+      setDebouncedSearch(search.trim())
+      setPage(0)
+    }, 300)
+    return () => clearTimeout(t)
+  }, [search])
+
   const load = React.useCallback(async () => {
     setLoading(true)
-    const { data, error } = await supabase
+    const from = page * pageSize
+    let query = supabase
       .from("suppliers")
-      .select("*")
+      .select("*", { count: "exact" })
+      .order(sortKey, { ascending: sortDir === "asc", nullsFirst: false })
       .order("code")
+      .range(from, from + pageSize - 1)
+    if (debouncedSearch) query = query.or(searchFilter(debouncedSearch))
+    const { data, error, count } = await query
     if (error) {
       setLoadError(error.message)
     } else {
       setLoadError(null)
       setRows(data as Supplier[])
+      setTotal(count ?? 0)
     }
     setLoading(false)
-  }, [supabase])
+  }, [supabase, page, pageSize, debouncedSearch, sortKey, sortDir])
 
   React.useEffect(() => {
     load()
   }, [load])
 
-  const filtered = rows.filter((r) => {
-    const q = search.trim().toLowerCase()
-    if (!q) return true
-    return [r.code, r.name, r.contact]
-      .filter(Boolean)
-      .some((v) => v!.toLowerCase().includes(q))
-  })
+  function toggleSort(key: SortKey) {
+    if (sortKey === key) {
+      setSortDir((d) => (d === "asc" ? "desc" : "asc"))
+    } else {
+      setSortKey(key)
+      setSortDir("asc")
+    }
+    setPage(0)
+  }
+
+  const pageCount = Math.max(1, Math.ceil(total / pageSize))
+  const rangeStart = total === 0 ? 0 : page * pageSize + 1
+  const rangeEnd = Math.min(total, (page + 1) * pageSize)
 
   function openCreate() {
     setEditing(null)
@@ -208,6 +302,51 @@ export default function SuppliersPage() {
     if (!error) load()
   }
 
+  /** Хуудаслалт, хайлтаас үл хамааран БҮХ нийлүүлэгчийг Excel-д татна */
+  async function exportExcel() {
+    setExporting(true)
+    const all: Supplier[] = []
+    const CHUNK = 1000 // Supabase-ийн нэг хүсэлтийн default дээд хязгаар
+    for (let from = 0; ; from += CHUNK) {
+      const { data, error } = await supabase
+        .from("suppliers")
+        .select("*")
+        .order(sortKey, { ascending: sortDir === "asc", nullsFirst: false })
+        .order("code")
+        .range(from, from + CHUNK - 1)
+      if (error) {
+        setLoadError(error.message)
+        setExporting(false)
+        return
+      }
+      all.push(...(data as Supplier[]))
+      if (!data || data.length < CHUNK) break
+    }
+    setExporting(false)
+    exportToExcel<Supplier>({
+      rows: all,
+      sheetName: "Нийлүүлэгч",
+      fileName: `niiluulegch-${todayStamp()}`,
+      columns: [
+        { header: "Код", value: (r) => r.code, width: 10 },
+        { header: "Нэр", value: (r) => r.name, width: 32 },
+        { header: "Холбоо барих", value: (r) => r.contact, width: 24 },
+        { header: "И-мэйл", value: (r) => r.email, width: 24 },
+        { header: "Хаяг", value: (r) => r.address, width: 32 },
+        {
+          header: "Төлөв",
+          value: (r) => (r.is_active ? "Идэвхтэй" : "Идэвхгүй"),
+          width: 12,
+        },
+        {
+          header: "Үүсгэсэн",
+          value: (r) => r.created_at.slice(0, 10),
+          width: 12,
+        },
+      ],
+    })
+  }
+
   function set<K extends keyof FormState>(key: K, value: FormState[K]) {
     setForm((f) => ({ ...f, [key]: value }))
   }
@@ -222,6 +361,14 @@ export default function SuppliersPage() {
           </p>
         </div>
         <div className="flex gap-2">
+          <Button
+            variant="outline"
+            onClick={exportExcel}
+            disabled={exporting || total === 0}
+          >
+            <DownloadIcon />
+            {exporting ? "Бэлдэж байна..." : "Excel татах"}
+          </Button>
           <Button variant="outline" onClick={() => setJsonOpen(true)}>
             <BracesIcon />
             JSON-оор нэмэх
@@ -258,11 +405,48 @@ export default function SuppliersPage() {
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead className="w-24">Код</TableHead>
-              <TableHead>Нэр</TableHead>
-              <TableHead>Холбоо барих</TableHead>
-              <TableHead>И-мэйл</TableHead>
-              <TableHead className="w-24">Төлөв</TableHead>
+              <SortHead
+                col="code"
+                sortKey={sortKey}
+                sortDir={sortDir}
+                onSort={toggleSort}
+                className="w-24"
+              >
+                Код
+              </SortHead>
+              <SortHead
+                col="name"
+                sortKey={sortKey}
+                sortDir={sortDir}
+                onSort={toggleSort}
+              >
+                Нэр
+              </SortHead>
+              <SortHead
+                col="contact"
+                sortKey={sortKey}
+                sortDir={sortDir}
+                onSort={toggleSort}
+              >
+                Холбоо барих
+              </SortHead>
+              <SortHead
+                col="email"
+                sortKey={sortKey}
+                sortDir={sortDir}
+                onSort={toggleSort}
+              >
+                И-мэйл
+              </SortHead>
+              <SortHead
+                col="is_active"
+                sortKey={sortKey}
+                sortDir={sortDir}
+                onSort={toggleSort}
+                className="w-28"
+              >
+                Төлөв
+              </SortHead>
               <TableHead className="w-12" />
             </TableRow>
           </TableHeader>
@@ -277,24 +461,26 @@ export default function SuppliersPage() {
                   ))}
                 </TableRow>
               ))
-            ) : filtered.length === 0 ? (
+            ) : rows.length === 0 ? (
               <TableRow>
                 <TableCell
                   colSpan={6}
                   className="h-24 text-center text-muted-foreground"
                 >
-                  {rows.length === 0
-                    ? "Нийлүүлэгч бүртгэгдээгүй байна"
-                    : "Хайлтад тохирох илэрц олдсонгүй"}
+                  {debouncedSearch
+                    ? "Хайлтад тохирох илэрц олдсонгүй"
+                    : "Нийлүүлэгч бүртгэгдээгүй байна"}
                 </TableCell>
               </TableRow>
             ) : (
-              filtered.map((row) => (
+              rows.map((row) => (
                 <TableRow
                   key={row.id}
                   className={row.is_active ? "" : "opacity-50"}
                 >
-                  <TableCell className="font-mono text-xs">{row.code}</TableCell>
+                  <TableCell className="font-mono text-xs">
+                    {row.code}
+                  </TableCell>
                   <TableCell className="font-medium">{row.name}</TableCell>
                   <TableCell>{row.contact ?? "—"}</TableCell>
                   <TableCell>{row.email ?? "—"}</TableCell>
@@ -333,6 +519,75 @@ export default function SuppliersPage() {
             )}
           </TableBody>
         </Table>
+      </div>
+
+      {/* Хуудаслалт */}
+      <div className="flex flex-wrap items-center justify-between gap-4 text-sm">
+        <div className="flex items-center gap-2 text-muted-foreground">
+          <span>Хуудсанд</span>
+          <Select
+            value={String(pageSize)}
+            onValueChange={(v) => {
+              setPageSize(Number(v))
+              setPage(0)
+            }}
+          >
+            <SelectTrigger size="sm" className="w-20">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {PAGE_SIZES.map((n) => (
+                <SelectItem key={n} value={String(n)}>
+                  {n}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <span>
+            мөр · {rangeStart}–{rangeEnd} / нийт {total}
+          </span>
+        </div>
+        <div className="flex items-center gap-1">
+          <Button
+            variant="outline"
+            size="icon-sm"
+            onClick={() => setPage(0)}
+            disabled={page === 0}
+          >
+            <ChevronsLeftIcon />
+            <span className="sr-only">Эхний хуудас</span>
+          </Button>
+          <Button
+            variant="outline"
+            size="icon-sm"
+            onClick={() => setPage((p) => p - 1)}
+            disabled={page === 0}
+          >
+            <ChevronLeftIcon />
+            <span className="sr-only">Өмнөх</span>
+          </Button>
+          <span className="px-2 tabular-nums">
+            {page + 1} / {pageCount}
+          </span>
+          <Button
+            variant="outline"
+            size="icon-sm"
+            onClick={() => setPage((p) => p + 1)}
+            disabled={page + 1 >= pageCount}
+          >
+            <ChevronRightIcon />
+            <span className="sr-only">Дараах</span>
+          </Button>
+          <Button
+            variant="outline"
+            size="icon-sm"
+            onClick={() => setPage(pageCount - 1)}
+            disabled={page + 1 >= pageCount}
+          >
+            <ChevronsRightIcon />
+            <span className="sr-only">Сүүлийн хуудас</span>
+          </Button>
+        </div>
       </div>
 
       {/* Нэг нийлүүлэгч нэмэх/засах */}
@@ -430,7 +685,10 @@ export default function SuppliersPage() {
             <Button variant="outline" onClick={() => setJsonOpen(false)}>
               Болих
             </Button>
-            <Button onClick={importJson} disabled={importing || !jsonText.trim()}>
+            <Button
+              onClick={importJson}
+              disabled={importing || !jsonText.trim()}
+            >
               {importing ? "Нэмж байна..." : "Нэмэх"}
             </Button>
           </DialogFooter>
