@@ -56,7 +56,6 @@ export type Product = {
   id: string
   code: string
   name: string
-  portion_weight: number | null
   description: string | null
   is_active: boolean
   created_at: string
