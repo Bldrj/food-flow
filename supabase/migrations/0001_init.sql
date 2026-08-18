@@ -121,7 +121,8 @@ $$ language plpgsql;
 
 create table if not exists public.materials (
   id uuid primary key default gen_random_uuid(),
-  code text not null unique,
+  code text not null unique,   -- системийн код (MAT-001, автомат)
+  base_code text,              -- гараас оруулах үндсэн код (сонголттой; ж: нягтлан/агуулахын код)
   name text not null,
   base_unit text not null
     check (base_unit in ('kg', 'g', 'l', 'ml', 'pcs')),
@@ -138,6 +139,10 @@ create table if not exists public.materials (
 -- нэрийг (том/жижиг үсэг ялгахгүй) давхардуулахгүй
 create unique index if not exists materials_name_unique_idx
   on public.materials (lower(name));
+
+-- base_code оруулсан бол давхардуулахгүй (хоосон утга олон байж болно)
+create unique index if not exists materials_base_code_unique_idx
+  on public.materials (lower(base_code)) where base_code is not null;
 
 create trigger materials_assign_code
   before insert on public.materials

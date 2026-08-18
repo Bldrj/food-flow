@@ -42,7 +42,8 @@ export const MATERIAL_CATEGORY_LABELS: Record<MaterialCategory, string> = {
 
 export type Material = {
   id: string
-  code: string
+  code: string              // системийн код MAT-001 (автомат)
+  base_code: string | null  // гараас оруулах үндсэн код (сонголттой, unique)
   name: string
   base_unit: BaseUnit
   category: MaterialCategory

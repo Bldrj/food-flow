@@ -57,6 +57,7 @@ import {
 } from "lucide-react"
 
 type FormState = {
+  base_code: string
   name: string
   base_unit: BaseUnit
   category: MaterialCategory
@@ -64,6 +65,7 @@ type FormState = {
 }
 
 const EMPTY_FORM: FormState = {
+  base_code: "",
   name: "",
   base_unit: "kg",
   category: "food",
@@ -71,7 +73,7 @@ const EMPTY_FORM: FormState = {
 }
 
 const JSON_PLACEHOLDER = `[
-  { "name": "Үхрийн мах", "base_unit": "kg", "category": "food", "min_stock": 20 },
+  { "base_code": "M-101", "name": "Үхрийн мах", "base_unit": "kg", "category": "food", "min_stock": 20 },
   { "name": "Сонгино", "base_unit": "kg", "category": "food", "min_stock": 10 },
   { "name": "500мл сав", "base_unit": "pcs", "category": "packaging", "min_stock": 1000 }
 ]`
@@ -90,6 +92,7 @@ function isCategory(v: unknown): v is MaterialCategory {
 }
 
 type Payload = {
+  base_code: string | null
   name: string
   base_unit: BaseUnit
   category: MaterialCategory
@@ -108,6 +111,17 @@ function parseMaterialsJson(text: string): Payload[] {
     if (!name) {
       throw new Error(`${i + 1}-р элементэд "name" талбар байхгүй байна`)
     }
+    if (
+      item.base_code !== undefined &&
+      item.base_code !== null &&
+      typeof item.base_code !== "string"
+    ) {
+      throw new Error(`${i + 1}-р элементийн "base_code" нь текст байх ёстой`)
+    }
+    const base_code =
+      typeof item.base_code === "string" && item.base_code.trim()
+        ? item.base_code.trim()
+        : null
     if (!isBaseUnit(item.base_unit)) {
       throw new Error(
         `${i + 1}-р элементийн "base_unit" нь ${BASE_UNITS.join(" | ")} байх ёстой`
@@ -128,7 +142,7 @@ function parseMaterialsJson(text: string): Payload[] {
       }
       min_stock = item.min_stock
     }
-    return { name, base_unit: item.base_unit, category, min_stock }
+    return { base_code, name, base_unit: item.base_unit, category, min_stock }
   })
 }
 
@@ -144,6 +158,7 @@ function toPayload(form: FormState): Payload | { error: string } {
     min_stock = n
   }
   return {
+    base_code: form.base_code.trim() || null,
     name: form.name.trim(),
     base_unit: form.base_unit,
     category: form.category,
@@ -194,7 +209,9 @@ export default function MaterialsPage() {
     if (categoryFilter !== "all" && r.category !== categoryFilter) return false
     const q = search.trim().toLowerCase()
     if (!q) return true
-    return [r.code, r.name].some((v) => v.toLowerCase().includes(q))
+    return [r.code, r.base_code, r.name]
+      .filter(Boolean)
+      .some((v) => v!.toLowerCase().includes(q))
   })
 
   function openCreate() {
@@ -207,6 +224,7 @@ export default function MaterialsPage() {
   function openEdit(row: Material) {
     setEditing(row)
     setForm({
+      base_code: row.base_code ?? "",
       name: row.name,
       base_unit: row.base_unit,
       category: row.category,
@@ -300,7 +318,7 @@ export default function MaterialsPage() {
         <div className="relative max-w-sm flex-1 basis-64">
           <SearchIcon className="absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
           <Input
-            placeholder="Код, нэрээр хайх..."
+            placeholder="Код, үндсэн код, нэрээр хайх..."
             className="pl-8"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
@@ -340,6 +358,7 @@ export default function MaterialsPage() {
           <TableHeader>
             <TableRow>
               <TableHead className="w-24">Код</TableHead>
+              <TableHead className="w-28">Үндсэн код</TableHead>
               <TableHead>Нэр</TableHead>
               <TableHead className="w-28">Ангилал</TableHead>
               <TableHead className="w-28">Үндсэн нэгж</TableHead>
@@ -352,7 +371,7 @@ export default function MaterialsPage() {
             {loading ? (
               [...Array(3)].map((_, i) => (
                 <TableRow key={i}>
-                  {[...Array(7)].map((_, j) => (
+                  {[...Array(8)].map((_, j) => (
                     <TableCell key={j}>
                       <Skeleton className="h-4 w-full" />
                     </TableCell>
@@ -362,7 +381,7 @@ export default function MaterialsPage() {
             ) : filtered.length === 0 ? (
               <TableRow>
                 <TableCell
-                  colSpan={7}
+                  colSpan={8}
                   className="h-24 text-center text-muted-foreground"
                 >
                   {rows.length === 0
@@ -377,6 +396,9 @@ export default function MaterialsPage() {
                   className={row.is_active ? "" : "opacity-50"}
                 >
                   <TableCell className="font-mono text-xs">{row.code}</TableCell>
+                  <TableCell className="font-mono text-xs">
+                    {row.base_code ?? "—"}
+                  </TableCell>
                   <TableCell className="font-medium">{row.name}</TableCell>
                   <TableCell>
                     <Badge variant="outline">
@@ -440,6 +462,19 @@ export default function MaterialsPage() {
             </DialogDescription>
           </DialogHeader>
           <div className="grid gap-4">
+            <div className="grid gap-2">
+              <Label htmlFor="base_code">Үндсэн код</Label>
+              <Input
+                id="base_code"
+                placeholder="M-101 (сонголттой)"
+                value={form.base_code}
+                onChange={(e) => set("base_code", e.target.value)}
+              />
+              <p className="text-xs text-muted-foreground">
+                Системийн код (MAT-001) автоматаар үүснэ. Үндсэн код нь өөрийн
+                нягтлан бодох/агуулахын код бөгөөд давхардаж болохгүй.
+              </p>
+            </div>
             <div className="grid gap-2">
               <Label htmlFor="name">Нэр *</Label>
               <Input
@@ -525,8 +560,9 @@ export default function MaterialsPage() {
             <DialogDescription>
               Нэг object эсвэл array буулгана. <code>name</code>,{" "}
               <code>base_unit</code> (kg|g|l|ml|pcs) заавал;{" "}
-              <code>category</code> (food|packaging|other) болон{" "}
-              <code>min_stock</code> сонголттой. Код автоматаар үүснэ.
+              <code>base_code</code>, <code>category</code>{" "}
+              (food|packaging|other) болон <code>min_stock</code> сонголттой.
+              Системийн код автоматаар үүснэ.
             </DialogDescription>
           </DialogHeader>
           <div className="grid gap-2">
