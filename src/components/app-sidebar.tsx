@@ -1,17 +1,17 @@
-"use client"
+"use client";
 
-import * as React from "react"
-import Link from "next/link"
-import { usePathname } from "next/navigation"
+import * as React from "react";
+import Link from "next/link";
+import { usePathname } from "next/navigation";
 
-import { NavUser } from "@/components/nav-user"
-import { UserSwitcher } from "@/components/user-switcher"
-import { useDevUser } from "@/components/dev-user-provider"
+import { NavUser } from "@/components/nav-user";
+import { UserSwitcher } from "@/components/user-switcher";
+import { useDevUser } from "@/components/dev-user-provider";
 import {
   Collapsible,
   CollapsibleContent,
   CollapsibleTrigger,
-} from "@/components/ui/collapsible"
+} from "@/components/ui/collapsible";
 import {
   Sidebar,
   SidebarContent,
@@ -26,26 +26,26 @@ import {
   SidebarMenuSubButton,
   SidebarMenuSubItem,
   SidebarRail,
-} from "@/components/ui/sidebar"
-import { BookOpenIcon, ChevronRightIcon, HomeIcon } from "lucide-react"
-import { canAccess } from "@/lib/permissions"
+} from "@/components/ui/sidebar";
+import { BookOpenIcon, ChevronRightIcon, HomeIcon } from "lucide-react";
+import { canAccess } from "@/lib/permissions";
 
 // Лавлагаа (master data) дэд цэсүүд — шинэ лавлах нэмэгдэхэд энд мөр нэмнэ
 const MASTER_DATA_ITEMS = [
   { title: "Захиалагч", url: "/customers" },
   { title: "Нийлүүлэгч", url: "/suppliers" },
-  { title: "Материал", url: "/materials" },
+  { title: "Түүхий эд", url: "/materials" },
   { title: "Хоол", url: "/products" },
-]
+];
 
 export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
-  const { user } = useDevUser()
-  const pathname = usePathname()
+  const { user } = useDevUser();
+  const pathname = usePathname();
 
   // Дүрд нь хандах эрхгүй цэсийг харуулахгүй
   const masterDataItems = MASTER_DATA_ITEMS.filter((item) =>
-    canAccess(user.role, item.url)
-  )
+    canAccess(user.role, item.url),
+  );
 
   return (
     <Sidebar collapsible="icon" {...props}>
@@ -105,5 +105,5 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
       </SidebarFooter>
       <SidebarRail />
     </Sidebar>
-  )
+  );
 }

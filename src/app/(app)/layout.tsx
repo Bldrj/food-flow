@@ -1,33 +1,33 @@
-"use client"
+"use client";
 
-import * as React from "react"
-import { usePathname } from "next/navigation"
+import * as React from "react";
+import { usePathname } from "next/navigation";
 
-import { AppSidebar } from "@/components/app-sidebar"
-import { ModeToggle } from "@/components/mode-toggle"
-import { useDevUser } from "@/components/dev-user-provider"
-import { canAccess } from "@/lib/permissions"
+import { AppSidebar } from "@/components/app-sidebar";
+import { ModeToggle } from "@/components/mode-toggle";
+import { useDevUser } from "@/components/dev-user-provider";
+import { canAccess } from "@/lib/permissions";
 import {
   Breadcrumb,
   BreadcrumbItem,
   BreadcrumbList,
   BreadcrumbPage,
   BreadcrumbSeparator,
-} from "@/components/ui/breadcrumb"
-import { Separator } from "@/components/ui/separator"
+} from "@/components/ui/breadcrumb";
+import { Separator } from "@/components/ui/separator";
 import {
   SidebarInset,
   SidebarProvider,
   SidebarTrigger,
-} from "@/components/ui/sidebar"
+} from "@/components/ui/sidebar";
 
 const BREADCRUMBS: Record<string, string[]> = {
   "/": ["Нүүр"],
   "/customers": ["Лавлагаа", "Захиалагч"],
   "/suppliers": ["Лавлагаа", "Нийлүүлэгч"],
-  "/materials": ["Лавлагаа", "Материал"],
+  "/materials": ["Лавлагаа", "Түүхий эд"],
   "/products": ["Лавлагаа", "Хоол"],
-}
+};
 
 function AccessDenied({ roleLabel }: { roleLabel: string }) {
   return (
@@ -36,19 +36,19 @@ function AccessDenied({ roleLabel }: { roleLabel: string }) {
         <p className="text-lg font-medium">Хандах эрхгүй</p>
         <p className="text-muted-foreground mt-2 text-sm">
           Таны одоогийн дүр (<span className="font-medium">{roleLabel}</span>)
-          энэ хуудсанд хандах эрхгүй. Sidebar-ын дээд хэсгээс хэрэглэгчээ
-          сольж үзнэ үү.
+          энэ хуудсанд хандах эрхгүй. Sidebar-ын дээд хэсгээс хэрэглэгчээ сольж
+          үзнэ үү.
         </p>
       </div>
     </div>
-  )
+  );
 }
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
-  const pathname = usePathname()
-  const { user } = useDevUser()
-  const crumbs = BREADCRUMBS[pathname] ?? ["Нүүр"]
-  const allowed = canAccess(user.role, pathname)
+  const pathname = usePathname();
+  const { user } = useDevUser();
+  const crumbs = BREADCRUMBS[pathname] ?? ["Нүүр"];
+  const allowed = canAccess(user.role, pathname);
 
   return (
     <SidebarProvider>
@@ -89,5 +89,5 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         </div>
       </SidebarInset>
     </SidebarProvider>
-  )
+  );
 }
