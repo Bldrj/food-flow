@@ -43,25 +43,22 @@ import {
 
 type FormState = {
   name: string
-  portion_weight: string
   description: string
 }
 
 const EMPTY_FORM: FormState = {
   name: "",
-  portion_weight: "",
   description: "",
 }
 
 const JSON_PLACEHOLDER = `[
-  { "name": "Үхрийн махтай хуурга", "portion_weight": 350 },
-  { "name": "Тахианы терияки", "portion_weight": 320 },
-  { "name": "Цуйван", "portion_weight": 400 }
+  { "name": "Үхрийн махтай хуурга" },
+  { "name": "Тахианы терияки" },
+  { "name": "Цуйван", "description": "Багц захиалгад" }
 ]`
 
 type Payload = {
   name: string
-  portion_weight: number | null
   description: string | null
 }
 
@@ -77,37 +74,18 @@ function parseProductsJson(text: string): Payload[] {
     if (!name) {
       throw new Error(`${i + 1}-р элементэд "name" талбар байхгүй байна`)
     }
-    let portion_weight: number | null = null
-    if (item.portion_weight !== undefined && item.portion_weight !== null) {
-      if (typeof item.portion_weight !== "number" || item.portion_weight <= 0) {
-        throw new Error(
-          `${i + 1}-р элементийн "portion_weight" нь 0-ээс их тоо (грамм) байх ёстой`
-        )
-      }
-      portion_weight = item.portion_weight
-    }
     const description =
       typeof item.description === "string" && item.description.trim()
         ? item.description.trim()
         : null
-    return { name, portion_weight, description }
+    return { name, description }
   })
 }
 
 // code-ийг илгээхгүй — DB-ийн trigger/sequence автоматаар олгоно (migration 0008)
-function toPayload(form: FormState): Payload | { error: string } {
-  const pw = form.portion_weight.trim()
-  let portion_weight: number | null = null
-  if (pw !== "") {
-    const n = Number(pw)
-    if (!Number.isFinite(n) || n <= 0) {
-      return { error: "Порцын жин нь 0-ээс их тоо (грамм) байх ёстой" }
-    }
-    portion_weight = n
-  }
+function toPayload(form: FormState): Payload {
   return {
     name: form.name.trim(),
-    portion_weight,
     description: form.description.trim() || null,
   }
 }
@@ -167,8 +145,6 @@ export default function ProductsPage() {
     setEditing(row)
     setForm({
       name: row.name,
-      portion_weight:
-        row.portion_weight === null ? "" : String(row.portion_weight),
       description: row.description ?? "",
     })
     setSaveError(null)
@@ -181,10 +157,6 @@ export default function ProductsPage() {
       return
     }
     const payload = toPayload(form)
-    if ("error" in payload) {
-      setSaveError(payload.error)
-      return
-    }
     setSaving(true)
     const { error } = editing
       ? await supabase.from("products").update(payload).eq("id", editing.id)
@@ -280,7 +252,7 @@ export default function ProductsPage() {
             <TableRow>
               <TableHead className="w-24">Код</TableHead>
               <TableHead>Нэр</TableHead>
-              <TableHead className="w-32">Порцын жин</TableHead>
+              <TableHead>Тайлбар</TableHead>
               <TableHead className="w-24">Төлөв</TableHead>
               <TableHead className="w-12" />
             </TableRow>
@@ -315,10 +287,8 @@ export default function ProductsPage() {
                 >
                   <TableCell className="font-mono text-xs">{row.code}</TableCell>
                   <TableCell className="font-medium">{row.name}</TableCell>
-                  <TableCell>
-                    {row.portion_weight === null
-                      ? "—"
-                      : `${row.portion_weight} гр`}
+                  <TableCell className="text-muted-foreground">
+                    {row.description ?? "—"}
                   </TableCell>
                   <TableCell>
                     <Badge variant={row.is_active ? "default" : "secondary"}>
@@ -381,17 +351,6 @@ export default function ProductsPage() {
               />
             </div>
             <div className="grid gap-2">
-              <Label htmlFor="portion_weight">Порцын жин (гр)</Label>
-              <Input
-                id="portion_weight"
-                type="number"
-                min="0"
-                placeholder="350"
-                value={form.portion_weight}
-                onChange={(e) => set("portion_weight", e.target.value)}
-              />
-            </div>
-            <div className="grid gap-2">
               <Label htmlFor="description">Тайлбар</Label>
               <Textarea
                 id="description"
@@ -421,8 +380,8 @@ export default function ProductsPage() {
             <DialogTitle>JSON-оор хоол нэмэх</DialogTitle>
             <DialogDescription>
               Нэг object эсвэл array буулгана. <code>name</code> заавал;{" "}
-              <code>portion_weight</code> (грамм) болон{" "}
               <code>description</code> сонголттой. Код автоматаар үүснэ.
+              Порцын гарцын жин нь Технологийн картад тодорхойлогдоно.
             </DialogDescription>
           </DialogHeader>
           <div className="grid gap-2">
