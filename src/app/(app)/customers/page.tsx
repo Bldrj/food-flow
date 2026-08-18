@@ -85,7 +85,7 @@ function parseCustomersJson(text: string): FormState[] {
   })
 }
 
-// code-ийг илгээхгүй — DB-ийн trigger/sequence автоматаар олгоно (migration 0005)
+// code-ийг илгээхгүй — DB-ийн trigger/sequence автоматаар олгоно (migration 0001_init)
 function toPayload(form: FormState) {
   return {
     name: form.name.trim(),
@@ -253,7 +253,7 @@ export default function CustomersPage() {
           <p className="font-medium">Өгөгдөл ачаалж чадсангүй: {loadError}</p>
           <p className="text-muted-foreground mt-1">
             Хүснэгтийн бүтэц хуучирсан бол{" "}
-            <code>supabase/migrations/0003_customers_simplify.sql</code> файлыг
+            <code>supabase/migrations/0001_init.sql</code> файлыг
             Supabase Dashboard &gt; SQL Editor дээр ажиллуулна уу.
           </p>
         </div>

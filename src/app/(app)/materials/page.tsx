@@ -132,7 +132,7 @@ function parseMaterialsJson(text: string): Payload[] {
   })
 }
 
-// code-ийг илгээхгүй — DB-ийн trigger/sequence автоматаар олгоно (migration 0006)
+// code-ийг илгээхгүй — DB-ийн trigger/sequence автоматаар олгоно (migration 0001_init)
 function toPayload(form: FormState): Payload | { error: string } {
   const min = form.min_stock.trim()
   let min_stock: number | null = null
@@ -329,7 +329,7 @@ export default function MaterialsPage() {
           <p className="font-medium">Өгөгдөл ачаалж чадсангүй: {loadError}</p>
           <p className="text-muted-foreground mt-1">
             Хүснэгт үүсээгүй бол{" "}
-            <code>supabase/migrations/0006_materials.sql</code> файлыг Supabase
+            <code>supabase/migrations/0001_init.sql</code> файлыг Supabase
             Dashboard &gt; SQL Editor дээр ажиллуулна уу.
           </p>
         </div>

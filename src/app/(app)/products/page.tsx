@@ -82,7 +82,7 @@ function parseProductsJson(text: string): Payload[] {
   })
 }
 
-// code-ийг илгээхгүй — DB-ийн trigger/sequence автоматаар олгоно (migration 0008)
+// code-ийг илгээхгүй — DB-ийн trigger/sequence автоматаар олгоно (migration 0001_init)
 function toPayload(form: FormState): Payload {
   return {
     name: form.name.trim(),
@@ -240,7 +240,7 @@ export default function ProductsPage() {
           <p className="font-medium">Өгөгдөл ачаалж чадсангүй: {loadError}</p>
           <p className="text-muted-foreground mt-1">
             Хүснэгт үүсээгүй бол{" "}
-            <code>supabase/migrations/0008_dishes_to_products.sql</code> файлыг
+            <code>supabase/migrations/0001_init.sql</code> файлыг
             Supabase Dashboard &gt; SQL Editor дээр ажиллуулна уу.
           </p>
         </div>
