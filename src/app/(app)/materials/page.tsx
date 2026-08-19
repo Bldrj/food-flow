@@ -40,6 +40,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { Skeleton } from "@/components/ui/skeleton"
+import { Switch } from "@/components/ui/switch"
 import {
   Table,
   TableBody,
@@ -124,20 +125,20 @@ function parseMaterialsJson(text: string): Payload[] {
         : null
     if (!isBaseUnit(item.base_unit)) {
       throw new Error(
-        `${i + 1}-р элементийн "base_unit" нь ${BASE_UNITS.join(" | ")} байх ёстой`
+        `${i + 1}-р элементийн "base_unit" нь ${BASE_UNITS.join(" | ")} байх ёстой`,
       )
     }
     const category = item.category ?? "other"
     if (!isCategory(category)) {
       throw new Error(
-        `${i + 1}-р элементийн "category" нь ${MATERIAL_CATEGORIES.join(" | ")} байх ёстой`
+        `${i + 1}-р элементийн "category" нь ${MATERIAL_CATEGORIES.join(" | ")} байх ёстой`,
       )
     }
     let min_stock: number | null = null
     if (item.min_stock !== undefined && item.min_stock !== null) {
       if (typeof item.min_stock !== "number" || item.min_stock < 0) {
         throw new Error(
-          `${i + 1}-р элементийн "min_stock" нь 0-ээс их тоо байх ёстой`
+          `${i + 1}-р элементийн "min_stock" нь 0-ээс их тоо байх ёстой`,
         )
       }
       min_stock = item.min_stock
@@ -173,6 +174,7 @@ export default function MaterialsPage() {
   const [loading, setLoading] = React.useState(true)
   const [loadError, setLoadError] = React.useState<string | null>(null)
   const [search, setSearch] = React.useState("")
+  const [showInactive, setShowInactive] = React.useState(false)
   const [categoryFilter, setCategoryFilter] = React.useState<string>("all")
 
   const [dialogOpen, setDialogOpen] = React.useState(false)
@@ -188,10 +190,9 @@ export default function MaterialsPage() {
 
   const load = React.useCallback(async () => {
     setLoading(true)
-    const { data, error } = await supabase
-      .from("materials")
-      .select("*")
-      .order("code")
+    let query = supabase.from("materials").select("*").order("code")
+    if (!showInactive) query = query.eq("is_active", true)
+    const { data, error } = await query
     if (error) {
       setLoadError(error.message)
     } else {
@@ -199,7 +200,7 @@ export default function MaterialsPage() {
       setRows(data as Material[])
     }
     setLoading(false)
-  }, [supabase])
+  }, [supabase, showInactive])
 
   React.useEffect(() => {
     load()
@@ -246,10 +247,7 @@ export default function MaterialsPage() {
     }
     setSaving(true)
     const { error } = editing
-      ? await supabase
-          .from("materials")
-          .update(payload)
-          .eq("id", editing.id)
+      ? await supabase.from("materials").update(payload).eq("id", editing.id)
       : await supabase.from("materials").insert(payload)
     setSaving(false)
     if (error) {
@@ -340,15 +338,18 @@ export default function MaterialsPage() {
             ))}
           </SelectContent>
         </Select>
+        <Label className="flex items-center gap-2 text-sm font-normal text-muted-foreground">
+          <Switch checked={showInactive} onCheckedChange={setShowInactive} />
+          Идэвхгүй харуулах
+        </Label>
       </div>
 
       {loadError && (
         <div className="rounded-lg border border-destructive/50 bg-destructive/10 p-4 text-sm">
           <p className="font-medium">Өгөгдөл ачаалж чадсангүй: {loadError}</p>
           <p className="text-muted-foreground mt-1">
-            Хүснэгт үүсээгүй бол{" "}
-            <code>supabase/migrations/0001_init.sql</code> файлыг Supabase
-            Dashboard &gt; SQL Editor дээр ажиллуулна уу.
+            Хүснэгт үүсээгүй бол <code>supabase/migrations/0001_init.sql</code>{" "}
+            файлыг Supabase Dashboard &gt; SQL Editor дээр ажиллуулна уу.
           </p>
         </div>
       )}
@@ -363,7 +364,6 @@ export default function MaterialsPage() {
               <TableHead className="w-28">Ангилал</TableHead>
               <TableHead className="w-28">Үндсэн нэгж</TableHead>
               <TableHead className="w-32">Доод үлдэгдэл</TableHead>
-              <TableHead className="w-24">Төлөв</TableHead>
               <TableHead className="w-12" />
             </TableRow>
           </TableHeader>
@@ -371,7 +371,7 @@ export default function MaterialsPage() {
             {loading ? (
               [...Array(3)].map((_, i) => (
                 <TableRow key={i}>
-                  {[...Array(8)].map((_, j) => (
+                  {[...Array(7)].map((_, j) => (
                     <TableCell key={j}>
                       <Skeleton className="h-4 w-full" />
                     </TableCell>
@@ -381,7 +381,7 @@ export default function MaterialsPage() {
             ) : filtered.length === 0 ? (
               <TableRow>
                 <TableCell
-                  colSpan={8}
+                  colSpan={7}
                   className="h-24 text-center text-muted-foreground"
                 >
                   {rows.length === 0
@@ -395,7 +395,9 @@ export default function MaterialsPage() {
                   key={row.id}
                   className={row.is_active ? "" : "opacity-50"}
                 >
-                  <TableCell className="font-mono text-xs">{row.code}</TableCell>
+                  <TableCell className="font-mono text-xs">
+                    {row.code}
+                  </TableCell>
                   <TableCell className="font-mono text-xs">
                     {row.base_code ?? "—"}
                   </TableCell>
@@ -410,11 +412,6 @@ export default function MaterialsPage() {
                     {row.min_stock === null
                       ? "—"
                       : `${row.min_stock} ${BASE_UNIT_LABELS[row.base_unit]}`}
-                  </TableCell>
-                  <TableCell>
-                    <Badge variant={row.is_active ? "default" : "secondary"}>
-                      {row.is_active ? "Идэвхтэй" : "Идэвхгүй"}
-                    </Badge>
                   </TableCell>
                   <TableCell>
                     <DropdownMenu>
@@ -583,7 +580,10 @@ export default function MaterialsPage() {
             <Button variant="outline" onClick={() => setJsonOpen(false)}>
               Болих
             </Button>
-            <Button onClick={importJson} disabled={importing || !jsonText.trim()}>
+            <Button
+              onClick={importJson}
+              disabled={importing || !jsonText.trim()}
+            >
               {importing ? "Нэмж байна..." : "Нэмэх"}
             </Button>
           </DialogFooter>

@@ -7,7 +7,6 @@ import { type Supplier } from "@/lib/types"
 import { cn } from "@/lib/utils"
 import { exportToExcel, todayStamp } from "@/lib/export-excel"
 
-import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -34,6 +33,7 @@ import {
 } from "@/components/ui/select"
 import { Label } from "@/components/ui/label"
 import { Skeleton } from "@/components/ui/skeleton"
+import { Switch } from "@/components/ui/switch"
 import {
   Table,
   TableBody,
@@ -74,7 +74,7 @@ const EMPTY_FORM: FormState = {
 
 const PAGE_SIZES = [10, 25, 50, 100]
 
-type SortKey = "code" | "name" | "contact" | "email" | "is_active"
+type SortKey = "code" | "name" | "contact" | "email"
 type SortDir = "asc" | "desc"
 
 function SortHead({
@@ -165,6 +165,7 @@ export default function SuppliersPage() {
   const [loading, setLoading] = React.useState(true)
   const [loadError, setLoadError] = React.useState<string | null>(null)
   const [search, setSearch] = React.useState("")
+  const [showInactive, setShowInactive] = React.useState(false)
   const [debouncedSearch, setDebouncedSearch] = React.useState("")
   const [page, setPage] = React.useState(0)
   const [pageSize, setPageSize] = React.useState(25)
@@ -202,6 +203,7 @@ export default function SuppliersPage() {
       .order(sortKey, { ascending: sortDir === "asc", nullsFirst: false })
       .order("code")
       .range(from, from + pageSize - 1)
+    if (!showInactive) query = query.eq("is_active", true)
     if (debouncedSearch) query = query.or(searchFilter(debouncedSearch))
     const { data, error, count } = await query
     if (error) {
@@ -212,7 +214,15 @@ export default function SuppliersPage() {
       setTotal(count ?? 0)
     }
     setLoading(false)
-  }, [supabase, page, pageSize, debouncedSearch, sortKey, sortDir])
+  }, [
+    supabase,
+    page,
+    pageSize,
+    debouncedSearch,
+    sortKey,
+    sortDir,
+    showInactive,
+  ])
 
   React.useEffect(() => {
     load()
@@ -308,12 +318,14 @@ export default function SuppliersPage() {
     const all: Supplier[] = []
     const CHUNK = 1000 // Supabase-ийн нэг хүсэлтийн default дээд хязгаар
     for (let from = 0; ; from += CHUNK) {
-      const { data, error } = await supabase
+      let q = supabase
         .from("suppliers")
         .select("*")
         .order(sortKey, { ascending: sortDir === "asc", nullsFirst: false })
         .order("code")
         .range(from, from + CHUNK - 1)
+      if (!showInactive) q = q.eq("is_active", true)
+      const { data, error } = await q
       if (error) {
         setLoadError(error.message)
         setExporting(false)
@@ -333,11 +345,15 @@ export default function SuppliersPage() {
         { header: "Холбоо барих", value: (r) => r.contact, width: 24 },
         { header: "И-мэйл", value: (r) => r.email, width: 24 },
         { header: "Хаяг", value: (r) => r.address, width: 32 },
-        {
-          header: "Төлөв",
-          value: (r) => (r.is_active ? "Идэвхтэй" : "Идэвхгүй"),
-          width: 12,
-        },
+        ...(showInactive
+          ? [
+              {
+                header: "Төлөв",
+                value: (r: Supplier) => (r.is_active ? "Идэвхтэй" : "Идэвхгүй"),
+                width: 12,
+              },
+            ]
+          : []),
         {
           header: "Үүсгэсэн",
           value: (r) => r.created_at.slice(0, 10),
@@ -380,14 +396,20 @@ export default function SuppliersPage() {
         </div>
       </div>
 
-      <div className="relative max-w-sm">
-        <SearchIcon className="absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-        <Input
-          placeholder="Код, нэр, холбоо барихаар хайх..."
-          className="pl-8"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-        />
+      <div className="flex flex-wrap items-center gap-4">
+        <div className="relative max-w-sm flex-1 basis-64">
+          <SearchIcon className="absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            placeholder="Код, нэр, холбоо барихаар хайх..."
+            className="pl-8"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
+        </div>
+        <Label className="flex items-center gap-2 text-sm font-normal text-muted-foreground">
+          <Switch checked={showInactive} onCheckedChange={setShowInactive} />
+          Идэвхгүй харуулах
+        </Label>
       </div>
 
       {loadError && (
@@ -395,8 +417,8 @@ export default function SuppliersPage() {
           <p className="font-medium">Өгөгдөл ачаалж чадсангүй: {loadError}</p>
           <p className="text-muted-foreground mt-1">
             Хүснэгтийн бүтэц хуучирсан бол{" "}
-            <code>supabase/migrations/0001_init.sql</code> файлыг
-            Supabase Dashboard &gt; SQL Editor дээр ажиллуулна уу.
+            <code>supabase/migrations/0001_init.sql</code> файлыг Supabase
+            Dashboard &gt; SQL Editor дээр ажиллуулна уу.
           </p>
         </div>
       )}
@@ -438,15 +460,6 @@ export default function SuppliersPage() {
               >
                 И-мэйл
               </SortHead>
-              <SortHead
-                col="is_active"
-                sortKey={sortKey}
-                sortDir={sortDir}
-                onSort={toggleSort}
-                className="w-28"
-              >
-                Төлөв
-              </SortHead>
               <TableHead className="w-12" />
             </TableRow>
           </TableHeader>
@@ -454,7 +467,7 @@ export default function SuppliersPage() {
             {loading ? (
               [...Array(3)].map((_, i) => (
                 <TableRow key={i}>
-                  {[...Array(6)].map((_, j) => (
+                  {[...Array(5)].map((_, j) => (
                     <TableCell key={j}>
                       <Skeleton className="h-4 w-full" />
                     </TableCell>
@@ -464,7 +477,7 @@ export default function SuppliersPage() {
             ) : rows.length === 0 ? (
               <TableRow>
                 <TableCell
-                  colSpan={6}
+                  colSpan={5}
                   className="h-24 text-center text-muted-foreground"
                 >
                   {debouncedSearch
@@ -484,11 +497,6 @@ export default function SuppliersPage() {
                   <TableCell className="font-medium">{row.name}</TableCell>
                   <TableCell>{row.contact ?? "—"}</TableCell>
                   <TableCell>{row.email ?? "—"}</TableCell>
-                  <TableCell>
-                    <Badge variant={row.is_active ? "default" : "secondary"}>
-                      {row.is_active ? "Идэвхтэй" : "Идэвхгүй"}
-                    </Badge>
-                  </TableCell>
                   <TableCell>
                     <DropdownMenu>
                       <DropdownMenuTrigger

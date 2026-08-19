@@ -5,7 +5,6 @@ import * as React from "react"
 import { createClient } from "@/lib/supabase/client"
 import { type Customer } from "@/lib/types"
 
-import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -25,6 +24,7 @@ import {
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Skeleton } from "@/components/ui/skeleton"
+import { Switch } from "@/components/ui/switch"
 import {
   Table,
   TableBody,
@@ -103,6 +103,7 @@ export default function CustomersPage() {
   const [loading, setLoading] = React.useState(true)
   const [loadError, setLoadError] = React.useState<string | null>(null)
   const [search, setSearch] = React.useState("")
+  const [showInactive, setShowInactive] = React.useState(false)
 
   const [dialogOpen, setDialogOpen] = React.useState(false)
   const [editing, setEditing] = React.useState<Customer | null>(null)
@@ -117,10 +118,9 @@ export default function CustomersPage() {
 
   const load = React.useCallback(async () => {
     setLoading(true)
-    const { data, error } = await supabase
-      .from("customers")
-      .select("*")
-      .order("code")
+    let query = supabase.from("customers").select("*").order("code")
+    if (!showInactive) query = query.eq("is_active", true)
+    const { data, error } = await query
     if (error) {
       setLoadError(error.message)
     } else {
@@ -128,7 +128,7 @@ export default function CustomersPage() {
       setRows(data as Customer[])
     }
     setLoading(false)
-  }, [supabase])
+  }, [supabase, showInactive])
 
   React.useEffect(() => {
     load()
@@ -238,14 +238,20 @@ export default function CustomersPage() {
         </div>
       </div>
 
-      <div className="relative max-w-sm">
-        <SearchIcon className="absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-        <Input
-          placeholder="Код, нэр, холбоо барихаар хайх..."
-          className="pl-8"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-        />
+      <div className="flex flex-wrap items-center gap-4">
+        <div className="relative max-w-sm flex-1 basis-64">
+          <SearchIcon className="absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            placeholder="Код, нэр, холбоо барихаар хайх..."
+            className="pl-8"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
+        </div>
+        <Label className="flex items-center gap-2 text-sm font-normal text-muted-foreground">
+          <Switch checked={showInactive} onCheckedChange={setShowInactive} />
+          Идэвхгүй харуулах
+        </Label>
       </div>
 
       {loadError && (
@@ -253,8 +259,8 @@ export default function CustomersPage() {
           <p className="font-medium">Өгөгдөл ачаалж чадсангүй: {loadError}</p>
           <p className="text-muted-foreground mt-1">
             Хүснэгтийн бүтэц хуучирсан бол{" "}
-            <code>supabase/migrations/0001_init.sql</code> файлыг
-            Supabase Dashboard &gt; SQL Editor дээр ажиллуулна уу.
+            <code>supabase/migrations/0001_init.sql</code> файлыг Supabase
+            Dashboard &gt; SQL Editor дээр ажиллуулна уу.
           </p>
         </div>
       )}
@@ -267,7 +273,6 @@ export default function CustomersPage() {
               <TableHead>Нэр</TableHead>
               <TableHead>Холбоо барих</TableHead>
               <TableHead>И-мэйл</TableHead>
-              <TableHead className="w-24">Төлөв</TableHead>
               <TableHead className="w-12" />
             </TableRow>
           </TableHeader>
@@ -275,7 +280,7 @@ export default function CustomersPage() {
             {loading ? (
               [...Array(3)].map((_, i) => (
                 <TableRow key={i}>
-                  {[...Array(6)].map((_, j) => (
+                  {[...Array(5)].map((_, j) => (
                     <TableCell key={j}>
                       <Skeleton className="h-4 w-full" />
                     </TableCell>
@@ -285,7 +290,7 @@ export default function CustomersPage() {
             ) : filtered.length === 0 ? (
               <TableRow>
                 <TableCell
-                  colSpan={6}
+                  colSpan={5}
                   className="h-24 text-center text-muted-foreground"
                 >
                   {rows.length === 0
@@ -299,15 +304,12 @@ export default function CustomersPage() {
                   key={row.id}
                   className={row.is_active ? "" : "opacity-50"}
                 >
-                  <TableCell className="font-mono text-xs">{row.code}</TableCell>
+                  <TableCell className="font-mono text-xs">
+                    {row.code}
+                  </TableCell>
                   <TableCell className="font-medium">{row.name}</TableCell>
                   <TableCell>{row.contact ?? "—"}</TableCell>
                   <TableCell>{row.email ?? "—"}</TableCell>
-                  <TableCell>
-                    <Badge variant={row.is_active ? "default" : "secondary"}>
-                      {row.is_active ? "Идэвхтэй" : "Идэвхгүй"}
-                    </Badge>
-                  </TableCell>
                   <TableCell>
                     <DropdownMenu>
                       <DropdownMenuTrigger
@@ -443,7 +445,10 @@ export default function CustomersPage() {
             <Button variant="outline" onClick={() => setJsonOpen(false)}>
               Болих
             </Button>
-            <Button onClick={importJson} disabled={importing || !jsonText.trim()}>
+            <Button
+              onClick={importJson}
+              disabled={importing || !jsonText.trim()}
+            >
               {importing ? "Нэмж байна..." : "Нэмэх"}
             </Button>
           </DialogFooter>
