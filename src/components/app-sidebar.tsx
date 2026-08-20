@@ -27,7 +27,12 @@ import {
   SidebarMenuSubItem,
   SidebarRail,
 } from "@/components/ui/sidebar";
-import { BookOpenIcon, ChevronRightIcon, HomeIcon } from "lucide-react";
+import {
+  BookOpenIcon,
+  ChevronRightIcon,
+  HomeIcon,
+  WarehouseIcon,
+} from "lucide-react";
 import { canAccess } from "@/lib/permissions";
 
 // Лавлагаа (master data) дэд цэсүүд — шинэ лавлах нэмэгдэхэд энд мөр нэмнэ
@@ -38,12 +43,20 @@ const MASTER_DATA_ITEMS = [
   { title: "Хоол", url: "/products" },
 ];
 
+// Агуулах (transaction) дэд цэсүүд
+const WAREHOUSE_ITEMS = [
+  { title: "Бараа хүлээн авах", url: "/warehouse/receipts" },
+];
+
 export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   const { user } = useDevUser();
   const pathname = usePathname();
 
   // Дүрд нь хандах эрхгүй цэсийг харуулахгүй
   const masterDataItems = MASTER_DATA_ITEMS.filter((item) =>
+    canAccess(user.role, item.url),
+  );
+  const warehouseItems = WAREHOUSE_ITEMS.filter((item) =>
     canAccess(user.role, item.url),
   );
 
@@ -82,6 +95,35 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
                 <CollapsibleContent>
                   <SidebarMenuSub>
                     {masterDataItems.map((item) => (
+                      <SidebarMenuSubItem key={item.url}>
+                        <SidebarMenuSubButton
+                          isActive={pathname === item.url}
+                          render={<Link href={item.url} />}
+                        >
+                          <span>{item.title}</span>
+                        </SidebarMenuSubButton>
+                      </SidebarMenuSubItem>
+                    ))}
+                  </SidebarMenuSub>
+                </CollapsibleContent>
+              </Collapsible>
+            )}
+            {warehouseItems.length > 0 && (
+              <Collapsible
+                defaultOpen
+                className="group/collapsible"
+                render={<SidebarMenuItem />}
+              >
+                <CollapsibleTrigger
+                  render={<SidebarMenuButton tooltip="Агуулах" />}
+                >
+                  <WarehouseIcon />
+                  <span>Агуулах</span>
+                  <ChevronRightIcon className="ml-auto transition-transform duration-200 group-data-open/collapsible:rotate-90" />
+                </CollapsibleTrigger>
+                <CollapsibleContent>
+                  <SidebarMenuSub>
+                    {warehouseItems.map((item) => (
                       <SidebarMenuSubItem key={item.url}>
                         <SidebarMenuSubButton
                           isActive={pathname === item.url}

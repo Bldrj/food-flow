@@ -27,6 +27,7 @@ const BREADCRUMBS: Record<string, string[]> = {
   "/suppliers": ["Лавлагаа", "Нийлүүлэгч"],
   "/materials": ["Лавлагаа", "Түүхий эд"],
   "/products": ["Лавлагаа", "Хоол"],
+  "/warehouse/receipts": ["Агуулах", "Бараа хүлээн авах"],
 };
 
 function AccessDenied({ roleLabel }: { roleLabel: string }) {
@@ -47,7 +48,14 @@ function AccessDenied({ roleLabel }: { roleLabel: string }) {
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const { user } = useDevUser();
-  const crumbs = BREADCRUMBS[pathname] ?? ["Нүүр"];
+  // Динамик дэд хуудсанд ("/warehouse/receipts/[id]") эцэг замын
+  // breadcrumb дээр "Дэлгэрэнгүй" нэмж харуулна
+  const parentKey = Object.keys(BREADCRUMBS)
+    .filter((k) => k !== "/" && pathname.startsWith(k + "/"))
+    .sort((a, b) => b.length - a.length)[0];
+  const crumbs =
+    BREADCRUMBS[pathname] ??
+    (parentKey ? [...BREADCRUMBS[parentKey], "Дэлгэрэнгүй"] : ["Нүүр"]);
   const allowed = canAccess(user.role, pathname);
 
   return (

@@ -5,10 +5,10 @@ import * as React from "react"
 import { createClient } from "@/lib/supabase/client"
 import {
   BASE_UNIT_LABELS,
-  BASE_UNITS,
+  CANONICAL_UNITS,
   MATERIAL_CATEGORIES,
   MATERIAL_CATEGORY_LABELS,
-  type BaseUnit,
+  type CanonicalUnit,
   type Material,
   type MaterialCategory,
 } from "@/lib/types"
@@ -60,7 +60,7 @@ import {
 type FormState = {
   base_code: string
   name: string
-  base_unit: BaseUnit
+  base_unit: CanonicalUnit
   category: MaterialCategory
   min_stock: string
 }
@@ -75,7 +75,7 @@ const EMPTY_FORM: FormState = {
 
 const JSON_PLACEHOLDER = `[
   { "base_code": "M-101", "name": "Үхрийн мах", "base_unit": "kg", "category": "food", "min_stock": 20 },
-  { "name": "Сонгино", "base_unit": "kg", "category": "food", "min_stock": 10 },
+  { "name": "Тос", "base_unit": "l", "category": "food", "min_stock": 10 },
   { "name": "500мл сав", "base_unit": "pcs", "category": "packaging", "min_stock": 1000 }
 ]`
 
@@ -84,8 +84,8 @@ const CATEGORY_FILTER_ITEMS: Record<string, string> = {
   ...MATERIAL_CATEGORY_LABELS,
 }
 
-function isBaseUnit(v: unknown): v is BaseUnit {
-  return typeof v === "string" && (BASE_UNITS as string[]).includes(v)
+function isCanonicalUnit(v: unknown): v is CanonicalUnit {
+  return typeof v === "string" && (CANONICAL_UNITS as string[]).includes(v)
 }
 
 function isCategory(v: unknown): v is MaterialCategory {
@@ -95,7 +95,7 @@ function isCategory(v: unknown): v is MaterialCategory {
 type Payload = {
   base_code: string | null
   name: string
-  base_unit: BaseUnit
+  base_unit: CanonicalUnit
   category: MaterialCategory
   min_stock: number | null
 }
@@ -123,9 +123,9 @@ function parseMaterialsJson(text: string): Payload[] {
       typeof item.base_code === "string" && item.base_code.trim()
         ? item.base_code.trim()
         : null
-    if (!isBaseUnit(item.base_unit)) {
+    if (!isCanonicalUnit(item.base_unit)) {
       throw new Error(
-        `${i + 1}-р элементийн "base_unit" нь ${BASE_UNITS.join(" | ")} байх ёстой`,
+        `${i + 1}-р элементийн "base_unit" нь ${CANONICAL_UNITS.join(" | ")} байх ёстой`,
       )
     }
     const category = item.category ?? "other"
@@ -506,13 +506,13 @@ export default function MaterialsPage() {
                 <Select
                   items={BASE_UNIT_LABELS}
                   value={form.base_unit}
-                  onValueChange={(v) => set("base_unit", v as BaseUnit)}
+                  onValueChange={(v) => set("base_unit", v as CanonicalUnit)}
                 >
                   <SelectTrigger className="w-full">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    {BASE_UNITS.map((u) => (
+                    {CANONICAL_UNITS.map((u) => (
                       <SelectItem key={u} value={u}>
                         {BASE_UNIT_LABELS[u]}
                       </SelectItem>
@@ -556,7 +556,7 @@ export default function MaterialsPage() {
             <DialogTitle>JSON-оор материал нэмэх</DialogTitle>
             <DialogDescription>
               Нэг object эсвэл array буулгана. <code>name</code>,{" "}
-              <code>base_unit</code> (kg|g|l|ml|pcs) заавал;{" "}
+              <code>base_unit</code> (kg|l|pcs) заавал;{" "}
               <code>base_code</code>, <code>category</code>{" "}
               (food|packaging|other) болон <code>min_stock</code> сонголттой.
               Системийн код автоматаар үүснэ.
