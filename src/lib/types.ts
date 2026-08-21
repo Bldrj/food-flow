@@ -102,6 +102,38 @@ export type GoodsReceipt = {
   updated_at: string
 }
 
+export type MovementType = "in" | "out" | "adjust"
+
+export const MOVEMENT_TYPE_LABELS: Record<MovementType, string> = {
+  in: "Орлого",
+  out: "Зарлага",
+  adjust: "Залруулга",
+}
+
+// stock_balances view-ийн мөр (материал + ledger-ийн нийлбэр)
+export type StockBalance = {
+  material_id: string
+  code: string
+  name: string
+  base_unit: CanonicalUnit
+  category: MaterialCategory
+  min_stock: number | null
+  is_active: boolean
+  balance: number
+}
+
+export type StockMovement = {
+  id: string
+  material_id: string
+  type: MovementType
+  qty: number // in/out: эерэг; adjust: тэмдэгтэй
+  unit_price: number | null
+  goods_receipt_id: string | null
+  created_by: string | null
+  note: string | null
+  created_at: string
+}
+
 export type GoodsReceiptItem = {
   id: string
   goods_receipt_id: string

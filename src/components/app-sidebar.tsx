@@ -45,6 +45,7 @@ const MASTER_DATA_ITEMS = [
 
 // Агуулах (transaction) дэд цэсүүд
 const WAREHOUSE_ITEMS = [
+  { title: "Үлдэгдэл", url: "/warehouse" },
   { title: "Бараа хүлээн авах", url: "/warehouse/receipts" },
 ];
 
