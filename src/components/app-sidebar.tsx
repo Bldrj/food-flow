@@ -30,6 +30,7 @@ import {
 import {
   BookOpenIcon,
   ChevronRightIcon,
+  ClipboardListIcon,
   HomeIcon,
   WarehouseIcon,
 } from "lucide-react";
@@ -109,6 +110,18 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
                   </SidebarMenuSub>
                 </CollapsibleContent>
               </Collapsible>
+            )}
+            {canAccess(user.role, "/orders") && (
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  tooltip="Захиалга"
+                  isActive={pathname.startsWith("/orders")}
+                  render={<Link href="/orders" />}
+                >
+                  <ClipboardListIcon />
+                  <span>Захиалга</span>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
             )}
             {warehouseItems.length > 0 && (
               <Collapsible

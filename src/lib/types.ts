@@ -134,6 +134,56 @@ export type StockMovement = {
   created_at: string
 }
 
+// Захиалга (migration 0006)
+
+export type OrderStatus =
+  | "draft"
+  | "confirmed"
+  | "in_production"
+  | "packed"
+  | "delivered"
+  | "closed"
+  | "cancelled"
+
+export const ORDER_STATUS_LABELS: Record<OrderStatus, string> = {
+  draft: "Ноорог",
+  confirmed: "Батлагдсан",
+  in_production: "Үйлдвэрлэлд",
+  packed: "Савлагдсан",
+  delivered: "Хүргэгдсэн",
+  closed: "Хаагдсан",
+  cancelled: "Цуцлагдсан",
+}
+
+export type Order = {
+  id: string
+  order_no: string // ORD-000001 (автомат)
+  customer_id: string
+  order_date: string
+  production_date: string // батчийн нэгтгэлийн түлхүүр
+  delivery_date: string | null // NULL = үйлдвэрлэсэн өдрөө хүргэнэ
+  delivery_time: string | null
+  status: OrderStatus
+  confirmed_at: string | null
+  confirmed_by: string | null // баталагч (үүсгэгчээс өөр байж болно)
+  note: string | null
+  created_by: string | null
+  created_at: string
+  updated_at: string
+}
+
+// ТК snapshot энд БАЙХГҮЙ — захиалга бол эрэлтийн баримт; идэвхтэй ТК-г
+// үйлдвэрлэлийн батч үүсэх мөчид хөлдөөнө (migration 0007-ын шийдвэр)
+export type OrderItem = {
+  id: string
+  order_id: string
+  product_id: string
+  qty: number // порцын тоо (integer)
+  unit_price: number | null
+  note: string | null
+  created_at: string
+}
+
 // Технологийн карт (migration 0005)
 
 export type TechCard = {
