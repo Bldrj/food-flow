@@ -1,10 +1,12 @@
 "use client"
 
 import * as React from "react"
+import Link from "next/link"
 
 import { createClient } from "@/lib/supabase/client"
 import { type Product } from "@/lib/types"
 
+import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -51,6 +53,11 @@ const EMPTY_FORM: FormState = {
   description: "",
 }
 
+// Хоол бүрийн ТК-ийн товч мэдээлэл (идэвхтэй хувилбар руу линк)
+type ProductRow = Product & {
+  tech_cards: { id: string; version: number; is_active: boolean }[]
+}
+
 const JSON_PLACEHOLDER = `[
   { "name": "Үхрийн махтай хуурга" },
   { "name": "Тахианы терияки" },
@@ -93,7 +100,7 @@ function toPayload(form: FormState): Payload {
 export default function ProductsPage() {
   const supabase = React.useMemo(() => createClient(), [])
 
-  const [rows, setRows] = React.useState<Product[]>([])
+  const [rows, setRows] = React.useState<ProductRow[]>([])
   const [loading, setLoading] = React.useState(true)
   const [loadError, setLoadError] = React.useState<string | null>(null)
   const [search, setSearch] = React.useState("")
@@ -112,14 +119,17 @@ export default function ProductsPage() {
 
   const load = React.useCallback(async () => {
     setLoading(true)
-    let query = supabase.from("products").select("*").order("code")
+    let query = supabase
+      .from("products")
+      .select("*, tech_cards(id, version, is_active)")
+      .order("code")
     if (!showInactive) query = query.eq("is_active", true)
     const { data, error } = await query
     if (error) {
       setLoadError(error.message)
     } else {
       setLoadError(null)
-      setRows(data as Product[])
+      setRows(data as ProductRow[])
     }
     setLoading(false)
   }, [supabase, showInactive])
@@ -257,6 +267,7 @@ export default function ProductsPage() {
             <TableRow>
               <TableHead className="w-24">Код</TableHead>
               <TableHead>Нэр</TableHead>
+              <TableHead className="w-32">Технологийн карт</TableHead>
               <TableHead>Тайлбар</TableHead>
               <TableHead className="w-12" />
             </TableRow>
@@ -265,7 +276,7 @@ export default function ProductsPage() {
             {loading ? (
               [...Array(3)].map((_, i) => (
                 <TableRow key={i}>
-                  {[...Array(4)].map((_, j) => (
+                  {[...Array(5)].map((_, j) => (
                     <TableCell key={j}>
                       <Skeleton className="h-4 w-full" />
                     </TableCell>
@@ -275,7 +286,7 @@ export default function ProductsPage() {
             ) : filtered.length === 0 ? (
               <TableRow>
                 <TableCell
-                  colSpan={4}
+                  colSpan={5}
                   className="h-24 text-center text-muted-foreground"
                 >
                   {rows.length === 0
@@ -293,6 +304,28 @@ export default function ProductsPage() {
                     {row.code}
                   </TableCell>
                   <TableCell className="font-medium">{row.name}</TableCell>
+                  <TableCell>
+                    {(() => {
+                      const active = row.tech_cards.find((c) => c.is_active)
+                      if (active) {
+                        return (
+                          <Link href={`/tech-cards/${active.id}`}>
+                            <Badge variant="outline" className="hover:bg-accent">
+                              ТК v{active.version}
+                            </Badge>
+                          </Link>
+                        )
+                      }
+                      // Карт байгаа ч идэвхтэй хувилбаргүй бол анхааруулна
+                      return row.tech_cards.length > 0 ? (
+                        <Badge variant="destructive">Идэвхтэй ТК-гүй</Badge>
+                      ) : (
+                        <span className="text-muted-foreground text-sm">
+                          ТК-гүй
+                        </span>
+                      )
+                    })()}
+                  </TableCell>
                   <TableCell className="text-muted-foreground">
                     {row.description ?? "—"}
                   </TableCell>

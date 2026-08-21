@@ -41,6 +41,7 @@ const MASTER_DATA_ITEMS = [
   { title: "Нийлүүлэгч", url: "/suppliers" },
   { title: "Түүхий эд", url: "/materials" },
   { title: "Хоол", url: "/products" },
+  { title: "Технологийн карт", url: "/tech-cards" },
 ];
 
 // Агуулах (transaction) дэд цэсүүд

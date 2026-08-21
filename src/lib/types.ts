@@ -134,6 +134,37 @@ export type StockMovement = {
   created_at: string
 }
 
+// Технологийн карт (migration 0005)
+
+export type TechCard = {
+  id: string
+  product_id: string
+  version: number
+  portion_yield_g: number | null // 1 порцын гарцын жин (гр)
+  instructions: string | null // олон мөрт заавар
+  is_active: boolean // нэг product-д зөвхөн 1 идэвхтэй хувилбар
+  created_at: string
+  updated_at: string
+}
+
+export type TechCardGroup = {
+  id: string
+  tech_card_id: string
+  name: string // «Үндсэн орц», «Соус» гэх мэт
+  sort_order: number
+  created_at: string
+}
+
+export type TechCardItem = {
+  id: string
+  group_id: string
+  material_id: string
+  brutto_qty: number // агуулахаас авах, base_unit-ээр
+  netto_qty: number // үйлдвэрлэлд орох, base_unit-ээр (≤ brutto)
+  sort_order: number
+  created_at: string
+}
+
 export type GoodsReceiptItem = {
   id: string
   goods_receipt_id: string
