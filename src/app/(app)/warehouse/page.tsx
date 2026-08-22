@@ -7,11 +7,17 @@ import { createClient } from "@/lib/supabase/client"
 import { useDevUser } from "@/components/dev-user-provider"
 import {
   BASE_UNIT_LABELS,
-  MATERIAL_CATEGORY_LABELS,
   MOVEMENT_TYPE_LABELS,
+  type MaterialCategoryNode,
   type StockBalance,
   type StockMovement,
 } from "@/lib/types"
+import {
+  buildCategoryTree,
+  categoryPathMap,
+  categoryWithDescendants,
+  flattenCategoryTree,
+} from "@/lib/category-tree"
 
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -47,11 +53,6 @@ type MovementRow = StockMovement & {
   goods_receipt: { receipt_no: string } | null
 }
 
-const CATEGORY_FILTER_ITEMS: Record<string, string> = {
-  all: "Бүх ангилал",
-  ...MATERIAL_CATEGORY_LABELS,
-}
-
 function formatQty(n: number): string {
   return Number(n.toFixed(6)).toLocaleString("en-US", {
     maximumFractionDigits: 6,
@@ -72,6 +73,7 @@ export default function WarehousePage() {
   const { user } = useDevUser()
 
   const [rows, setRows] = React.useState<StockBalance[]>([])
+  const [categories, setCategories] = React.useState<MaterialCategoryNode[]>([])
   const [loading, setLoading] = React.useState(true)
   const [loadError, setLoadError] = React.useState<string | null>(null)
   const [search, setSearch] = React.useState("")
@@ -107,8 +109,30 @@ export default function WarehousePage() {
     load()
   }, [load])
 
+  React.useEffect(() => {
+    async function loadCategories() {
+      const { data } = await supabase
+        .from("material_categories")
+        .select("*")
+        .order("sort_order")
+        .order("name")
+      if (data) setCategories(data as MaterialCategoryNode[])
+    }
+    loadCategories()
+  }, [supabase])
+
+  const categoryPaths = categoryPathMap(categories)
+  const flatCategories = flattenCategoryTree(buildCategoryTree(categories))
+  // Сонгосон ангиллын дэд ангиллуудыг хамтад нь хамруулна
+  const filterIds =
+    categoryFilter === "all" || categoryFilter === "none"
+      ? null
+      : categoryWithDescendants(categories, categoryFilter)
+
   const filtered = rows.filter((r) => {
-    if (categoryFilter !== "all" && r.category !== categoryFilter) return false
+    if (categoryFilter === "none" && r.category_id !== null) return false
+    if (filterIds && (!r.category_id || !filterIds.has(r.category_id)))
+      return false
     if (onlyStocked && r.balance === 0) return false
     const q = search.trim().toLowerCase()
     if (!q) return true
@@ -213,17 +237,29 @@ export default function WarehousePage() {
           />
         </div>
         <Select
-          items={CATEGORY_FILTER_ITEMS}
+          items={{
+            all: "Бүх ангилал",
+            none: "Ангилалгүй",
+            ...Object.fromEntries(
+              flatCategories.map(({ node }) => [
+                node.id,
+                categoryPaths.get(node.id) ?? node.name,
+              ]),
+            ),
+          }}
           value={categoryFilter}
           onValueChange={(v) => setCategoryFilter(v as string)}
         >
-          <SelectTrigger className="w-36">
+          <SelectTrigger className="w-48">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
-            {Object.entries(CATEGORY_FILTER_ITEMS).map(([value, label]) => (
-              <SelectItem key={value} value={value}>
-                {label}
+            <SelectItem value="all">Бүх ангилал</SelectItem>
+            <SelectItem value="none">Ангилалгүй</SelectItem>
+            {flatCategories.map(({ node, depth }) => (
+              <SelectItem key={node.id} value={node.id}>
+                {" ".repeat(depth * 3)}
+                {node.name}
               </SelectItem>
             ))}
           </SelectContent>
@@ -290,9 +326,13 @@ export default function WarehousePage() {
                   </TableCell>
                   <TableCell className="font-medium">{row.name}</TableCell>
                   <TableCell>
-                    <Badge variant="outline">
-                      {MATERIAL_CATEGORY_LABELS[row.category]}
-                    </Badge>
+                    {row.category_id ? (
+                      <Badge variant="outline">
+                        {categoryPaths.get(row.category_id) ?? "?"}
+                      </Badge>
+                    ) : (
+                      <span className="text-muted-foreground">—</span>
+                    )}
                   </TableCell>
                   <TableCell
                     className={

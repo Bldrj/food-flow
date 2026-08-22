@@ -226,7 +226,14 @@ erDiagram
 - **Хасагдсан талбарууд (2026-08-14):** `category` (мах/ногоо/сав баглаа гэсэн ангилал), `registration_no` (регистрийн №), `payment_terms` (төлбөрийн нөхцөл) — шаардлагагүй гэж үзэв; `contact_person` + `phone` → `contact` нэг талбарт нэгтгэв. Мөн `code`-ыг гараас оруулдаг байсныг автомат болгов. Schema: `supabase/migrations/0001_init.sql`.
 
 **materials** — материалын лавлах (хүнс + сав баглаа + бусад)
-- `id`, `code (MAT-001, системийн код, автоматаар үүснэ)`, `base_code` (гараас оруулах үндсэн код — нягтлан/агуулахын код гэх мэт; сонголттой, оруулсан бол case-insensitive UNIQUE), `name`, `base_unit (kg|l|pcs — canonical хэмжээс: жин/эзлэхүүн/тоо)`, `preferred_unit (kg|g|l|ml|pcs — оруулах/харуулах default нэгж, base_unit-тэй нийцтэй)`, `category (food|packaging|other)`, `min_stock` (доод үлдэгдлийн анхааруулга, base_unit-ээр хадгалагдана), `is_active`, `created_at`, `updated_at`
+- `id`, `code (MAT-001, системийн код, автоматаар үүснэ)`, `base_code` (гараас оруулах үндсэн код — нягтлан/агуулахын код гэх мэт; сонголттой, оруулсан бол case-insensitive UNIQUE), `name`, `base_unit (kg|l|pcs — canonical хэмжээс: жин/эзлэхүүн/тоо)`, `preferred_unit (kg|g|l|ml|pcs — оруулах/харуулах default нэгж, base_unit-тэй нийцтэй)`, `category_id` (→ material_categories, NULL = ангилалгүй), `min_stock` (доод үлдэгдлийн анхааруулга, base_unit-ээр хадгалагдана), `is_active`, `created_at`, `updated_at`
+- **Ангиллын шийдвэр (2026-08-22, `0009_material_categories.sql`):** хуучин `category (food|packaging|other)` enum-ийг **material_categories** модоор бүрэн орлуулав. Хэрэглэгч ангиллыг UI дээрээс (`/materials/categories`) өөрөө зохион байгуулна: нэмэх, нэр солих, зөөх, устгах, дурын гүнтэй дэд ангилал.
+
+**material_categories** — түүхий эдийн ангиллын мод ✅ `0009_material_categories.sql`
+- `id`, `parent_id` (NULL = үндсэн түвшин; adjacency list — мөр цөөн тул модыг фронтенд бүтнээр уншиж угсарна, рекурсив CTE хэрэггүй), `name` (нэг эцгийн доор case-insensitive UNIQUE), `sort_order`, `created_at`, `updated_at`
+- **Хамгаалалтууд:** цикл хориглох trigger (өөрийн дэд мод руу зөөж болохгүй, гүн ≤100); FK restrict — дэд ангилалтай ангилал устгагдахгүй. Материалтай ангилал устгахад UI материалуудыг эцэг ангилал руу (root бол ангилалгүй) шилжүүлээд устгана — баталгаажуулах анхааруулгатай (2026-08-22)
+- **Шилжүүлэлт:** хуучин 3 enum утга үндсэн түвшний «Хүнс», «Сав баглаа», «Бусад» ангилал болж, материал бүр харгалзан холбогдсон; дараа нь enum багана хасагдсан. `stock_balances` view `category_id`-тай болж дахин үүссэн
+- **UI:** шүүлтүүр дэд ангиллыг хамтад нь хамруулна (materials, warehouse); ангилал бүтэн замаараа харагдана («Хүнс › Мах»); JSON import ангилалгүй оруулаад дараа нь UI-гаас онооно
 - **Шийдвэрүүд (2026-08-15, `0006_materials.sql`):** `unit` → `base_unit` нэрлэж canonical (латин) утгаар хадгална — хөрвүүлэлт зөвхөн харагдацын асуудал. Нэр (case-insensitive) UNIQUE — давхар материал үлдэгдэл/хэрэгцээний тооцоог салгаж зөрүүлэх тул. Үлдэгдэл, үнэ, нийлүүлэгчийг энд хадгалахгүй (ledger + `material_suppliers`-ийн ажил). Код олголт, устгахгүй-идэвхгүй болгох, JSON import — customers/suppliers-тэй ижил зарчим.
 - **Нэгжийн шийдвэр (2026-08-18, эцсийн):**
   - **`base_unit` = `kg | l | pcs` — гуравхан canonical хэмжээс.** `g`, `ml` нь base unit биш. Ингэснээр DB дэх БҮХ тоо хэмжээ (ТК-ийн орц, орлого, зарлага, ledger, үлдэгдэл, хэрэгцээний тооцоо) нэг материалын хувьд нэг л нэгжтэй байж, шууд нэмэгдэж/харьцуулагдана.
@@ -327,6 +334,7 @@ erDiagram
 | `/customers` | Захиалагчийн лавлах (CRUD) | Менежер | ✅ 2026-08-14 |
 | `/suppliers` | Нийлүүлэгчийн лавлах (CRUD) + материалын холбоо, үнэ | Менежер | ✅ 2026-08-14 (материалын холбоо хараахан үгүй) |
 | `/materials` | Материалын лавлах (CRUD) | Менежер | ✅ 2026-08-15 |
+| `/materials/categories` | Ангиллын мод: дурын гүнтэй нэмэх/нэр солих/зөөх/устгах, материалын тоо | Менежер | ✅ 2026-08-22 |
 | `/products` | Хоолны (бүтээгдэхүүний) лавлах (CRUD) | Менежер | ✅ 2026-08-15 |
 | `/tech-cards` | ТК-ийн жагсаалт + дэлгэрэнгүй: орцын бүлгүүд, брутто/нетто (гр/мл-ээр оруулж base_unit-ээр хадгална), хаягдлын %, гарцын жин, заавар, «Шинэ хувилбар» (бүлэг/орц хуулж v+1) | Менежер | ✅ 2026-08-21 (Жэюүг Excel-ээс импортлогдсон) |
 | `/orders` | Захиалгын жагсаалт (статус/огноо/хайлтын шүүлт), шинэ захиалга (захиалагч, үйлдвэрлэх огноо, хүргэлт) | Менежер | ✅ 2026-08-21 |
@@ -362,7 +370,7 @@ erDiagram
 **Master data дэлгэцүүд** (гурвуулаа ижил бүтэцтэй — жагсаалт + хайлт, нэмэх/засах dialog, JSON import, Идэвхтэй/Идэвхгүй toggle, DELETE-гүй):
 - `/customers` — Захиалагч (2026-08-14)
 - `/suppliers` — Нийлүүлэгч (2026-08-14)
-- `/materials` — Материал (2026-08-15): ангиллын filter, base_unit/category select, доод үлдэгдэл
+- `/materials` — Материал (2026-08-15): ангиллын мод filter (дэд ангилал хамруулна), base_unit select, доод үлдэгдэл; ангиллын удирдлага `/materials/categories` (2026-08-22)
 - `/products` — Хоол (2026-08-15): код, нэр, тайлбар — орц, гарцын жин нь ТК-ийн ажил
 
 **Migration-ууд** (Supabase Dashboard > SQL Editor дээр гараар ажиллуулна):
@@ -377,6 +385,7 @@ erDiagram
 | `0006_orders.sql` | Захиалга (2026-08-21): orders (ORD-дугаарлалт, статусын бүрэн CHECK, confirmed_at invariant, батлагдсаныг хамгаалах trigger), order_items (immutable trigger FOR SHARE-тэй), `confirm_order()` RPC. Агуулахад нөлөөгүй |
 | `0007_orders_refine.sql` | Захиалгын засвар (2026-08-21, дизайн шүүмжийн дараа): ① `order_items.tech_card_id`-г хасав — ТК snapshot батч үүсэхэд авна («захиалга = эрэлт, батч = гүйцэтгэл»); ② confirm-оос ТК-ийн хатуу шалгалт хасагдаж батч руу шилжив; ③ `confirmed_by` нэмэв; ④ qty → integer (бутархай дата шалгах хамгаалалттай) |
 | `0008_production_batches.sql` | Үйлдвэрлэлийн батч (2026-08-21): production_batches (ТК snapshot, unique өдөр+хоол, identity immutable trigger, total_qty зөвхөн RPC-ээр), `generate_batches()` RPC (advisory lock, ТК-гүй бол алдаа, planned шинэчлэх/цэвэрлэх), daily_order_totals + daily_material_needs view-үүд. Мөн orders-оос `delivery_time`-ийг хасав |
+| `0009_material_categories.sql` | Түүхий эдийн ангиллын мод (2026-08-22): material_categories (parent_id, дурын гүн, цикл хориглох trigger, нэг эцгийн доор нэр UNIQUE), materials.category_id FK, хуучин enum → 3 үндсэн ангилал болж шилжээд `category` багана хасагдав, stock_balances view category_id-тай дахин үүсэв |
 
 ---
 

@@ -1,17 +1,22 @@
 "use client"
 
 import * as React from "react"
+import Link from "next/link"
 
 import { createClient } from "@/lib/supabase/client"
 import {
   BASE_UNIT_LABELS,
   CANONICAL_UNITS,
-  MATERIAL_CATEGORIES,
-  MATERIAL_CATEGORY_LABELS,
   type CanonicalUnit,
   type Material,
-  type MaterialCategory,
+  type MaterialCategoryNode,
 } from "@/lib/types"
+import {
+  buildCategoryTree,
+  categoryPathMap,
+  categoryWithDescendants,
+  flattenCategoryTree,
+} from "@/lib/category-tree"
 
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -52,6 +57,7 @@ import {
 import { Textarea } from "@/components/ui/textarea"
 import {
   BracesIcon,
+  FolderTreeIcon,
   MoreHorizontalIcon,
   PlusIcon,
   SearchIcon,
@@ -61,7 +67,7 @@ type FormState = {
   base_code: string
   name: string
   base_unit: CanonicalUnit
-  category: MaterialCategory
+  category_id: string // "none" = ангилалгүй
   min_stock: string
 }
 
@@ -69,34 +75,25 @@ const EMPTY_FORM: FormState = {
   base_code: "",
   name: "",
   base_unit: "kg",
-  category: "food",
+  category_id: "none",
   min_stock: "",
 }
 
 const JSON_PLACEHOLDER = `[
-  { "base_code": "M-101", "name": "Үхрийн мах", "base_unit": "kg", "category": "food", "min_stock": 20 },
-  { "name": "Тос", "base_unit": "l", "category": "food", "min_stock": 10 },
-  { "name": "500мл сав", "base_unit": "pcs", "category": "packaging", "min_stock": 1000 }
+  { "base_code": "M-101", "name": "Үхрийн мах", "base_unit": "kg", "min_stock": 20 },
+  { "name": "Тос", "base_unit": "l", "min_stock": 10 },
+  { "name": "500мл сав", "base_unit": "pcs", "min_stock": 1000 }
 ]`
-
-const CATEGORY_FILTER_ITEMS: Record<string, string> = {
-  all: "Бүх ангилал",
-  ...MATERIAL_CATEGORY_LABELS,
-}
 
 function isCanonicalUnit(v: unknown): v is CanonicalUnit {
   return typeof v === "string" && (CANONICAL_UNITS as string[]).includes(v)
-}
-
-function isCategory(v: unknown): v is MaterialCategory {
-  return typeof v === "string" && (MATERIAL_CATEGORIES as string[]).includes(v)
 }
 
 type Payload = {
   base_code: string | null
   name: string
   base_unit: CanonicalUnit
-  category: MaterialCategory
+  category_id: string | null
   min_stock: number | null
 }
 
@@ -128,12 +125,6 @@ function parseMaterialsJson(text: string): Payload[] {
         `${i + 1}-р элементийн "base_unit" нь ${CANONICAL_UNITS.join(" | ")} байх ёстой`,
       )
     }
-    const category = item.category ?? "other"
-    if (!isCategory(category)) {
-      throw new Error(
-        `${i + 1}-р элементийн "category" нь ${MATERIAL_CATEGORIES.join(" | ")} байх ёстой`,
-      )
-    }
     let min_stock: number | null = null
     if (item.min_stock !== undefined && item.min_stock !== null) {
       if (typeof item.min_stock !== "number" || item.min_stock < 0) {
@@ -143,7 +134,14 @@ function parseMaterialsJson(text: string): Payload[] {
       }
       min_stock = item.min_stock
     }
-    return { base_code, name, base_unit: item.base_unit, category, min_stock }
+    // Ангилал ангиллын модноос сонгогддог тул импортоор ангилалгүй орж ирнэ
+    return {
+      base_code,
+      name,
+      base_unit: item.base_unit,
+      category_id: null,
+      min_stock,
+    }
   })
 }
 
@@ -162,7 +160,7 @@ function toPayload(form: FormState): Payload | { error: string } {
     base_code: form.base_code.trim() || null,
     name: form.name.trim(),
     base_unit: form.base_unit,
-    category: form.category,
+    category_id: form.category_id === "none" ? null : form.category_id,
     min_stock,
   }
 }
@@ -171,6 +169,7 @@ export default function MaterialsPage() {
   const supabase = React.useMemo(() => createClient(), [])
 
   const [rows, setRows] = React.useState<Material[]>([])
+  const [categories, setCategories] = React.useState<MaterialCategoryNode[]>([])
   const [loading, setLoading] = React.useState(true)
   const [loadError, setLoadError] = React.useState<string | null>(null)
   const [search, setSearch] = React.useState("")
@@ -206,14 +205,45 @@ export default function MaterialsPage() {
     load()
   }, [load])
 
+  React.useEffect(() => {
+    async function loadCategories() {
+      const { data } = await supabase
+        .from("material_categories")
+        .select("*")
+        .order("sort_order")
+        .order("name")
+      if (data) setCategories(data as MaterialCategoryNode[])
+    }
+    loadCategories()
+  }, [supabase])
+
+  const categoryTree = buildCategoryTree(categories)
+  const categoryPaths = categoryPathMap(categories)
+  const flatCategories = flattenCategoryTree(categoryTree)
+  // Шүүлтүүр сонгосон ангиллын дэд ангиллуудыг хамтад нь хамруулна
+  const filterIds =
+    categoryFilter === "all" || categoryFilter === "none"
+      ? null
+      : categoryWithDescendants(categories, categoryFilter)
+
   const filtered = rows.filter((r) => {
-    if (categoryFilter !== "all" && r.category !== categoryFilter) return false
+    if (categoryFilter === "none" && r.category_id !== null) return false
+    if (filterIds && (!r.category_id || !filterIds.has(r.category_id)))
+      return false
     const q = search.trim().toLowerCase()
     if (!q) return true
     return [r.code, r.base_code, r.name]
       .filter(Boolean)
       .some((v) => v!.toLowerCase().includes(q))
   })
+
+  // Select-ийн label: trigger дээр бүтэн зам, жагсаалтад догол мөртэй нэр
+  const categorySelectItems: Record<string, string> = Object.fromEntries(
+    flatCategories.map(({ node }) => [
+      node.id,
+      categoryPaths.get(node.id) ?? node.name,
+    ]),
+  )
 
   function openCreate() {
     setEditing(null)
@@ -228,7 +258,7 @@ export default function MaterialsPage() {
       base_code: row.base_code ?? "",
       name: row.name,
       base_unit: row.base_unit,
-      category: row.category,
+      category_id: row.category_id ?? "none",
       min_stock: row.min_stock === null ? "" : String(row.min_stock),
     })
     setSaveError(null)
@@ -301,6 +331,13 @@ export default function MaterialsPage() {
           </p>
         </div>
         <div className="flex gap-2">
+          <Button
+            variant="outline"
+            render={<Link href="/materials/categories" />}
+          >
+            <FolderTreeIcon />
+            Ангилал
+          </Button>
           <Button variant="outline" onClick={() => setJsonOpen(true)}>
             <BracesIcon />
             JSON-оор нэмэх
@@ -323,17 +360,24 @@ export default function MaterialsPage() {
           />
         </div>
         <Select
-          items={CATEGORY_FILTER_ITEMS}
+          items={{
+            all: "Бүх ангилал",
+            none: "Ангилалгүй",
+            ...categorySelectItems,
+          }}
           value={categoryFilter}
           onValueChange={(v) => setCategoryFilter(v as string)}
         >
-          <SelectTrigger className="w-36">
+          <SelectTrigger className="w-48">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
-            {Object.entries(CATEGORY_FILTER_ITEMS).map(([value, label]) => (
-              <SelectItem key={value} value={value}>
-                {label}
+            <SelectItem value="all">Бүх ангилал</SelectItem>
+            <SelectItem value="none">Ангилалгүй</SelectItem>
+            {flatCategories.map(({ node, depth }) => (
+              <SelectItem key={node.id} value={node.id}>
+                {" ".repeat(depth * 3)}
+                {node.name}
               </SelectItem>
             ))}
           </SelectContent>
@@ -403,9 +447,13 @@ export default function MaterialsPage() {
                   </TableCell>
                   <TableCell className="font-medium">{row.name}</TableCell>
                   <TableCell>
-                    <Badge variant="outline">
-                      {MATERIAL_CATEGORY_LABELS[row.category]}
-                    </Badge>
+                    {row.category_id ? (
+                      <Badge variant="outline">
+                        {categoryPaths.get(row.category_id) ?? "?"}
+                      </Badge>
+                    ) : (
+                      <span className="text-muted-foreground">—</span>
+                    )}
                   </TableCell>
                   <TableCell>{BASE_UNIT_LABELS[row.base_unit]}</TableCell>
                   <TableCell>
@@ -485,17 +533,19 @@ export default function MaterialsPage() {
               <div className="grid gap-2">
                 <Label>Ангилал</Label>
                 <Select
-                  items={MATERIAL_CATEGORY_LABELS}
-                  value={form.category}
-                  onValueChange={(v) => set("category", v as MaterialCategory)}
+                  items={{ none: "Ангилалгүй", ...categorySelectItems }}
+                  value={form.category_id}
+                  onValueChange={(v) => set("category_id", v as string)}
                 >
                   <SelectTrigger className="w-full">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    {MATERIAL_CATEGORIES.map((c) => (
-                      <SelectItem key={c} value={c}>
-                        {MATERIAL_CATEGORY_LABELS[c]}
+                    <SelectItem value="none">Ангилалгүй</SelectItem>
+                    {flatCategories.map(({ node, depth }) => (
+                      <SelectItem key={node.id} value={node.id}>
+                        {" ".repeat(depth * 3)}
+                        {node.name}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -557,9 +607,9 @@ export default function MaterialsPage() {
             <DialogDescription>
               Нэг object эсвэл array буулгана. <code>name</code>,{" "}
               <code>base_unit</code> (kg|l|pcs) заавал;{" "}
-              <code>base_code</code>, <code>category</code>{" "}
-              (food|packaging|other) болон <code>min_stock</code> сонголттой.
-              Системийн код автоматаар үүснэ.
+              <code>base_code</code> болон <code>min_stock</code> сонголттой.
+              Системийн код автоматаар үүснэ. Ангилалгүй орж ирэх тул дараа нь
+              ангиллаа UI-гаас онооно.
             </DialogDescription>
           </DialogHeader>
           <div className="grid gap-2">

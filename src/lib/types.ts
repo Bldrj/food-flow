@@ -30,18 +30,15 @@ export const BASE_UNIT_LABELS: Record<BaseUnit, string> = {
   pcs: "ш",
 }
 
-export type MaterialCategory = "food" | "packaging" | "other"
-
-export const MATERIAL_CATEGORIES: MaterialCategory[] = [
-  "food",
-  "packaging",
-  "other",
-]
-
-export const MATERIAL_CATEGORY_LABELS: Record<MaterialCategory, string> = {
-  food: "Хүнс",
-  packaging: "Сав баглаа",
-  other: "Бусад",
+// Ангиллын мод (migration 0009) — parent_id-тай, хязгааргүй гүнтэй.
+// Модыг фронтенд дээр угсарна: src/lib/category-tree.ts
+export type MaterialCategoryNode = {
+  id: string
+  parent_id: string | null
+  name: string
+  sort_order: number
+  created_at: string
+  updated_at: string
 }
 
 export type Material = {
@@ -50,7 +47,7 @@ export type Material = {
   base_code: string | null  // гараас оруулах үндсэн код (сонголттой, unique)
   name: string
   base_unit: CanonicalUnit
-  category: MaterialCategory
+  category_id: string | null // NULL = ангилалгүй
   min_stock: number | null
   is_active: boolean
   created_at: string
@@ -116,7 +113,7 @@ export type StockBalance = {
   code: string
   name: string
   base_unit: CanonicalUnit
-  category: MaterialCategory
+  category_id: string | null
   min_stock: number | null
   is_active: boolean
   balance: number
