@@ -277,9 +277,6 @@ export default function OrderDetailPage() {
             <p className="text-sm text-muted-foreground">
               {order.customer?.name} · Үйлдвэрлэх: {order.production_date} ·
               Хүргэх: {order.delivery_date ?? "мөн өдөр"}
-              {order.delivery_time
-                ? ` ${order.delivery_time.slice(0, 5)}`
-                : ""}
               {order.created_by ? ` · ${order.created_by}` : ""}
               {order.note ? ` · ${order.note}` : ""}
             </p>

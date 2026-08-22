@@ -162,7 +162,6 @@ export type Order = {
   order_date: string
   production_date: string // батчийн нэгтгэлийн түлхүүр
   delivery_date: string | null // NULL = үйлдвэрлэсэн өдрөө хүргэнэ
-  delivery_time: string | null
   status: OrderStatus
   confirmed_at: string | null
   confirmed_by: string | null // баталагч (үүсгэгчээс өөр байж болно)

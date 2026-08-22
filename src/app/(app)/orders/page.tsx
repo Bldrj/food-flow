@@ -67,7 +67,6 @@ type HeaderForm = {
   customer_id: string
   production_date: string
   delivery_date: string
-  delivery_time: string
   note: string
 }
 
@@ -94,7 +93,6 @@ export default function OrdersPage() {
     customer_id: "",
     production_date: today(),
     delivery_date: "",
-    delivery_time: "",
     note: "",
   })
   const [creating, setCreating] = React.useState(false)
@@ -161,7 +159,6 @@ export default function OrdersPage() {
         customer_id: headerForm.customer_id,
         production_date: headerForm.production_date,
         delivery_date: headerForm.delivery_date || null,
-        delivery_time: headerForm.delivery_time || null,
         note: headerForm.note.trim() || null,
         created_by: user.name,
       })
@@ -301,12 +298,7 @@ export default function OrdersPage() {
                     {row.customer?.name ?? "—"}
                   </TableCell>
                   <TableCell>{row.production_date}</TableCell>
-                  <TableCell>
-                    {row.delivery_date ?? "мөн өдөр"}
-                    {row.delivery_time
-                      ? ` ${row.delivery_time.slice(0, 5)}`
-                      : ""}
-                  </TableCell>
+                  <TableCell>{row.delivery_date ?? "мөн өдөр"}</TableCell>
                   <TableCell>{row.items[0]?.count ?? 0}</TableCell>
                   <TableCell>
                     <Badge variant={STATUS_BADGE[row.status]}>
@@ -395,37 +387,23 @@ export default function OrdersPage() {
                 />
               </div>
               <div className="grid gap-2">
-                <Label htmlFor="delivery_time">Хүргэх цаг</Label>
+                <Label htmlFor="delivery_date">Хүргэх огноо</Label>
                 <Input
-                  id="delivery_time"
-                  type="time"
-                  value={headerForm.delivery_time}
+                  id="delivery_date"
+                  type="date"
+                  value={headerForm.delivery_date}
                   onChange={(e) =>
                     setHeaderForm((f) => ({
                       ...f,
-                      delivery_time: e.target.value,
+                      delivery_date: e.target.value,
                     }))
                   }
                 />
               </div>
             </div>
-            <div className="grid gap-2">
-              <Label htmlFor="delivery_date">Хүргэх огноо</Label>
-              <Input
-                id="delivery_date"
-                type="date"
-                value={headerForm.delivery_date}
-                onChange={(e) =>
-                  setHeaderForm((f) => ({
-                    ...f,
-                    delivery_date: e.target.value,
-                  }))
-                }
-              />
-              <p className="text-xs text-muted-foreground">
-                Хоосон орхивол үйлдвэрлэсэн өдрөө хүргэнэ гэж үзнэ
-              </p>
-            </div>
+            <p className="text-xs text-muted-foreground -mt-2">
+              Хүргэх огноог хоосон орхивол үйлдвэрлэсэн өдрөө хүргэнэ гэж үзнэ
+            </p>
             <div className="grid gap-2">
               <Label htmlFor="order_note">Тайлбар</Label>
               <Input
