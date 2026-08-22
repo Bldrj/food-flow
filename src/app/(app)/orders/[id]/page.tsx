@@ -14,15 +14,15 @@ import {
 
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
+import { Input } from "@/components/ui/input"
 import { Skeleton } from "@/components/ui/skeleton"
 import {
   Table,
@@ -35,7 +35,8 @@ import {
 import {
   ArrowLeftIcon,
   CheckIcon,
-  PlusIcon,
+  SaveIcon,
+  SearchIcon,
   Trash2Icon,
   TriangleAlertIcon,
 } from "lucide-react"
@@ -49,22 +50,12 @@ type ItemRow = OrderItem & {
 type ProductOption = {
   id: string
   name: string
+  code: string
   hasActiveCard: boolean
 }
 
-type ItemForm = {
-  product_id: string
-  qty: string
-  unit_price: string
-  note: string
-}
-
-const EMPTY_ITEM_FORM: ItemForm = {
-  product_id: "",
-  qty: "",
-  unit_price: "",
-  note: "",
-}
+// Excel-маягийн оруулгаас гарсан "энэ хоолноос N порц" мөр
+type Entry = { product_id: string; qty: number }
 
 function formatQty(n: number): string {
   return Number(n.toFixed(6)).toLocaleString("en-US", {
@@ -84,9 +75,13 @@ export default function OrderDetailPage() {
   const [loading, setLoading] = React.useState(true)
   const [loadError, setLoadError] = React.useState<string | null>(null)
 
-  const [itemForm, setItemForm] = React.useState<ItemForm>(EMPTY_ITEM_FORM)
-  const [itemSaving, setItemSaving] = React.useState(false)
+  // Ноорог үед хоол бүрийн ард бичсэн порцын тоо (хоосон = захиалахгүй)
+  const [qtys, setQtys] = React.useState<Record<string, string>>({})
+  const [search, setSearch] = React.useState("")
+  const [saving, setSaving] = React.useState(false)
   const [actionError, setActionError] = React.useState<string | null>(null)
+
+  const [confirmOpen, setConfirmOpen] = React.useState(false)
   const [confirming, setConfirming] = React.useState(false)
 
   const load = React.useCallback(async () => {
@@ -108,7 +103,14 @@ export default function OrderDetailPage() {
       setLoadError(null)
       setOrder(ord.data as OrderHeader)
     }
-    if (its.data) setItems(its.data as ItemRow[])
+    if (its.data) {
+      const rows = its.data as ItemRow[]
+      setItems(rows)
+      // Хадгалагдсан мөрүүдээр оруулгын талбаруудыг дүүргэнэ
+      setQtys(
+        Object.fromEntries(rows.map((i) => [i.product_id, String(i.qty)])),
+      )
+    }
     setLoading(false)
   }, [supabase, params.id])
 
@@ -120,7 +122,7 @@ export default function OrderDetailPage() {
     async function loadProducts() {
       const { data } = await supabase
         .from("products")
-        .select("id, name, tech_cards(is_active)")
+        .select("id, name, code, tech_cards(is_active)")
         .eq("is_active", true)
         .order("name")
       if (data) {
@@ -128,6 +130,7 @@ export default function OrderDetailPage() {
           data.map((p) => ({
             id: p.id,
             name: p.name,
+            code: p.code,
             hasActiveCard: (
               p.tech_cards as { is_active: boolean }[]
             ).some((c) => c.is_active),
@@ -139,70 +142,141 @@ export default function OrderDetailPage() {
   }, [supabase])
 
   const isDraft = order?.status === "draft"
-  const productItems = Object.fromEntries(
-    products.map((p) => [p.id, p.hasActiveCard ? p.name : `${p.name} (ТК-гүй)`]),
-  )
 
-  const totalQty = items.reduce((s, i) => s + i.qty, 0)
-  const hasCardlessItem = items.some((i) => {
-    const p = products.find((p) => p.id === i.product_id)
-    return p ? !p.hasActiveCard : false
+  const filteredProducts = products.filter((p) => {
+    const q = search.trim().toLowerCase()
+    if (!q) return true
+    return (
+      p.name.toLowerCase().includes(q) || p.code.toLowerCase().includes(q)
+    )
   })
 
-  async function addItem() {
-    if (!order) return
-    if (!itemForm.product_id) {
-      setActionError("Хоолоо сонгоно уу")
-      return
-    }
-    const qty = Number(itemForm.qty)
-    if (!Number.isInteger(qty) || qty <= 0) {
-      setActionError("Порцын тоо 0-ээс их бүхэл тоо байх ёстой")
-      return
-    }
-    let unit_price: number | null = null
-    if (itemForm.unit_price.trim() !== "") {
-      const p = Number(itemForm.unit_price)
-      if (!Number.isFinite(p) || p < 0) {
-        setActionError("Үнэ 0-ээс их тоо байх ёстой")
-        return
+  // Оруулсан тоонуудыг шалгаж Entry болгоно; буруу бол алдааны мэдээлэл буцаана
+  const parseEntries = React.useCallback((): {
+    entries: Entry[]
+    badNames: string[]
+  } => {
+    const entries: Entry[] = []
+    const badNames: string[] = []
+    for (const p of products) {
+      const raw = (qtys[p.id] ?? "").trim()
+      if (raw === "") continue
+      const qty = Number(raw)
+      if (!Number.isInteger(qty) || qty <= 0) {
+        badNames.push(p.name)
+        continue
       }
-      unit_price = p
+      entries.push({ product_id: p.id, qty })
     }
-    setItemSaving(true)
+    return { entries, badNames }
+  }, [products, qtys])
+
+  const { entries, badNames } = parseEntries()
+  const enteredTotal = entries.reduce((s, e) => s + e.qty, 0)
+  const productById = new Map(products.map((p) => [p.id, p]))
+  const cardlessEntered = entries.filter(
+    (e) => productById.get(e.product_id)?.hasActiveCard === false,
+  )
+
+  // Хадгалагдсан мөрүүдтэй харьцуулж өөрчлөлт байгаа эсэх
+  const savedByProduct = new Map(items.map((i) => [i.product_id, i]))
+  const isDirty =
+    entries.length !== items.filter((i) => productById.has(i.product_id)).length ||
+    entries.some((e) => savedByProduct.get(e.product_id)?.qty !== e.qty)
+
+  // Оруулгыг order_items руу тольдоно: шинэ → insert, өөрчлөгдсөн → update,
+  // тоог нь арилгасан → delete. Амжилттай бол true.
+  async function saveItems(): Promise<boolean> {
+    if (!order) return false
+    if (badNames.length > 0) {
+      setActionError(
+        `Порцын тоо 0-ээс их бүхэл тоо байх ёстой: ${badNames.join(", ")}`,
+      )
+      return false
+    }
     setActionError(null)
-    const { error } = await supabase.from("order_items").insert({
-      order_id: order.id,
-      product_id: itemForm.product_id,
-      qty,
-      unit_price,
-      note: itemForm.note.trim() || null,
+
+    const inserts = entries.filter((e) => !savedByProduct.has(e.product_id))
+    const updates = entries.filter((e) => {
+      const saved = savedByProduct.get(e.product_id)
+      return saved && saved.qty !== e.qty
     })
-    setItemSaving(false)
-    if (error) {
-      setActionError(error.message)
-      return
+    const enteredIds = new Set(entries.map((e) => e.product_id))
+    // Зөвхөн хүснэгтэд харагдаж буй (идэвхтэй) хоолны мөрийг устгана
+    const deletes = items.filter(
+      (i) => productById.has(i.product_id) && !enteredIds.has(i.product_id),
+    )
+
+    if (inserts.length > 0) {
+      const { error } = await supabase.from("order_items").insert(
+        inserts.map((e) => ({
+          order_id: order.id,
+          product_id: e.product_id,
+          qty: e.qty,
+        })),
+      )
+      if (error) {
+        setActionError(error.message)
+        return false
+      }
     }
-    setItemForm(EMPTY_ITEM_FORM)
-    load()
+    for (const e of updates) {
+      const saved = savedByProduct.get(e.product_id)!
+      const { error } = await supabase
+        .from("order_items")
+        .update({ qty: e.qty })
+        .eq("id", saved.id)
+      if (error) {
+        setActionError(error.message)
+        return false
+      }
+    }
+    if (deletes.length > 0) {
+      const { error } = await supabase
+        .from("order_items")
+        .delete()
+        .in(
+          "id",
+          deletes.map((i) => i.id),
+        )
+      if (error) {
+        setActionError(error.message)
+        return false
+      }
+    }
+    return true
   }
 
-  async function removeItem(item: ItemRow) {
-    const { error } = await supabase
-      .from("order_items")
-      .delete()
-      .eq("id", item.id)
-    if (error) {
-      setActionError(error.message)
+  async function saveDraft() {
+    setSaving(true)
+    const ok = await saveItems()
+    setSaving(false)
+    if (ok) load()
+  }
+
+  function openConfirm() {
+    if (badNames.length > 0) {
+      setActionError(
+        `Порцын тоо 0-ээс их бүхэл тоо байх ёстой: ${badNames.join(", ")}`,
+      )
       return
     }
-    load()
+    if (entries.length === 0) {
+      setActionError("Ядаж нэг хоолны ард порцын тоо оруулна уу")
+      return
+    }
+    setActionError(null)
+    setConfirmOpen(true)
   }
 
   async function confirmOrder() {
     if (!order) return
     setConfirming(true)
-    setActionError(null)
+    const ok = await saveItems()
+    if (!ok) {
+      setConfirming(false)
+      return
+    }
     const { error } = await supabase.rpc("confirm_order", {
       p_order_id: order.id,
       p_actor: user.name,
@@ -212,6 +286,7 @@ export default function OrderDetailPage() {
       setActionError(error.message)
       return
     }
+    setConfirmOpen(false)
     load()
   }
 
@@ -290,174 +365,245 @@ export default function OrderDetailPage() {
                 Устгах
               </Button>
               <Button
-                onClick={confirmOrder}
-                disabled={confirming || items.length === 0}
+                variant="outline"
+                onClick={saveDraft}
+                disabled={saving || !isDirty}
               >
+                <SaveIcon />
+                {saving ? "Хадгалж байна..." : "Хадгалах"}
+              </Button>
+              <Button onClick={openConfirm} disabled={entries.length === 0}>
                 <CheckIcon />
-                {confirming ? "Батлаж байна..." : "Батлах"}
+                Батлах
               </Button>
             </>
           )}
         </div>
       </div>
 
-      {isDraft && hasCardlessItem && (
-        <div className="flex items-center gap-2 rounded-lg border border-amber-500/50 bg-amber-500/10 p-3 text-sm">
-          <TriangleAlertIcon className="size-4 shrink-0 text-amber-600" />
-          <p>
-            Идэвхтэй технологийн картгүй хоол байна. Захиалга батлагдана, харин
-            үйлдвэрлэлийн батч үүсгэхээс өмнө{" "}
-            <Link href="/tech-cards" className="underline">
-              ТК үүсгэх
-            </Link>{" "}
-            шаардлагатай
-          </p>
-        </div>
-      )}
+      {isDraft ? (
+        <>
+          {cardlessEntered.length > 0 && (
+            <div className="flex items-center gap-2 rounded-lg border border-amber-500/50 bg-amber-500/10 p-3 text-sm">
+              <TriangleAlertIcon className="size-4 shrink-0 text-amber-600" />
+              <p>
+                Идэвхтэй технологийн картгүй хоол байна. Захиалга батлагдана,
+                харин үйлдвэрлэлийн батч үүсгэхээс өмнө{" "}
+                <Link href="/tech-cards" className="underline">
+                  ТК үүсгэх
+                </Link>{" "}
+                шаардлагатай
+              </p>
+            </div>
+          )}
 
-      <div className="rounded-lg border">
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Хоол</TableHead>
-              <TableHead className="w-28">Порц</TableHead>
-              <TableHead className="w-28">Нэгж үнэ</TableHead>
-              <TableHead className="w-32">Дүн</TableHead>
-              <TableHead>Тайлбар</TableHead>
-              {isDraft && <TableHead className="w-10" />}
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {items.length === 0 ? (
-              <TableRow>
-                <TableCell
-                  colSpan={isDraft ? 6 : 5}
-                  className="h-16 text-center text-muted-foreground"
-                >
-                  Мөр нэмээгүй байна
-                </TableCell>
-              </TableRow>
-            ) : (
-              items.map((item) => (
-                <TableRow key={item.id}>
-                  <TableCell className="font-medium">
-                    {item.product?.name ?? "—"}{" "}
-                    <span className="font-mono text-xs text-muted-foreground">
-                      {item.product?.code}
-                    </span>
-                  </TableCell>
-                  <TableCell>{formatQty(item.qty)}</TableCell>
-                  <TableCell>
-                    {item.unit_price === null
-                      ? "—"
-                      : `${item.unit_price.toLocaleString("en-US")}₮`}
-                  </TableCell>
-                  <TableCell>
-                    {item.unit_price === null
-                      ? "—"
-                      : `${(item.qty * item.unit_price).toLocaleString("en-US")}₮`}
-                  </TableCell>
-                  <TableCell className="text-muted-foreground">
-                    {item.note ?? "—"}
-                  </TableCell>
-                  {isDraft && (
-                    <TableCell>
-                      <Button
-                        variant="ghost"
-                        size="icon-sm"
-                        onClick={() => removeItem(item)}
-                      >
-                        <Trash2Icon />
-                        <span className="sr-only">Мөр устгах</span>
-                      </Button>
-                    </TableCell>
-                  )}
-                </TableRow>
-              ))
-            )}
-          </TableBody>
-        </Table>
-        {items.length > 0 && (
-          <p className="border-t px-4 py-2 text-sm text-muted-foreground">
-            Нийт: {items.length} мөр · {formatQty(totalQty)} порц
-          </p>
-        )}
-      </div>
-
-      {isDraft && (
-        <div className="grid gap-3 rounded-lg border p-4">
-          <p className="text-sm font-medium">Мөр нэмэх</p>
-          <div className="grid gap-3 sm:grid-cols-[1fr_6rem_8rem_1fr_auto]">
-            <div className="grid gap-2">
-              <Label>Хоол *</Label>
-              <Select
-                items={productItems}
-                value={itemForm.product_id}
-                onValueChange={(v) =>
-                  setItemForm((f) => ({ ...f, product_id: v as string }))
-                }
-              >
-                <SelectTrigger className="w-full">
-                  <SelectValue placeholder="Сонгох..." />
-                </SelectTrigger>
-                <SelectContent>
-                  {products.map((p) => (
-                    <SelectItem key={p.id} value={p.id}>
-                      {p.hasActiveCard ? p.name : `${p.name} (ТК-гүй)`}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="grid gap-2">
-              <Label htmlFor="item_qty">Порц *</Label>
-              <Input
-                id="item_qty"
-                type="number"
-                min="1"
-                step="1"
-                placeholder="50"
-                value={itemForm.qty}
-                onChange={(e) =>
-                  setItemForm((f) => ({ ...f, qty: e.target.value }))
-                }
-              />
-            </div>
-            <div className="grid gap-2">
-              <Label htmlFor="item_price">Нэгж үнэ (₮)</Label>
-              <Input
-                id="item_price"
-                type="number"
-                min="0"
-                placeholder="12000"
-                value={itemForm.unit_price}
-                onChange={(e) =>
-                  setItemForm((f) => ({ ...f, unit_price: e.target.value }))
-                }
-              />
-            </div>
-            <div className="grid gap-2">
-              <Label htmlFor="item_note">Тайлбар</Label>
-              <Input
-                id="item_note"
-                placeholder="Өглөөний нэмэлт..."
-                value={itemForm.note}
-                onChange={(e) =>
-                  setItemForm((f) => ({ ...f, note: e.target.value }))
-                }
-              />
-            </div>
-            <div className="flex items-end">
-              <Button onClick={addItem} disabled={itemSaving}>
-                <PlusIcon />
-                {itemSaving ? "Нэмж байна..." : "Нэмэх"}
-              </Button>
-            </div>
+          <div className="relative max-w-sm">
+            <SearchIcon className="text-muted-foreground absolute top-1/2 left-2.5 size-4 -translate-y-1/2" />
+            <Input
+              placeholder="Хоолны нэр, кодоор хайх..."
+              className="pl-8"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
           </div>
+
+          {/* Excel-маягийн оруулга: бүх хоол жагсаад ард нь порцын тоо.
+              Хоосон үлдээсэн хоол захиалгад орохгүй */}
+          <div className="rounded-lg border">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Хоол</TableHead>
+                  <TableHead className="w-32">Порц</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {filteredProducts.length === 0 ? (
+                  <TableRow>
+                    <TableCell
+                      colSpan={2}
+                      className="h-16 text-center text-muted-foreground"
+                    >
+                      Хоол олдсонгүй
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  filteredProducts.map((p) => {
+                    const value = qtys[p.id] ?? ""
+                    return (
+                      <TableRow
+                        key={p.id}
+                        className={value.trim() !== "" ? "bg-accent/40" : ""}
+                      >
+                        <TableCell className="font-medium">
+                          {p.name}{" "}
+                          <span className="font-mono text-xs text-muted-foreground">
+                            {p.code}
+                          </span>
+                          {!p.hasActiveCard && (
+                            <Badge variant="outline" className="ml-2">
+                              ТК-гүй
+                            </Badge>
+                          )}
+                        </TableCell>
+                        <TableCell>
+                          <Input
+                            type="number"
+                            min="1"
+                            step="1"
+                            placeholder="—"
+                            className="h-8 w-24"
+                            value={value}
+                            onChange={(e) =>
+                              setQtys((q) => ({
+                                ...q,
+                                [p.id]: e.target.value,
+                              }))
+                            }
+                          />
+                        </TableCell>
+                      </TableRow>
+                    )
+                  })
+                )}
+              </TableBody>
+            </Table>
+            <p className="border-t px-4 py-2 text-sm text-muted-foreground">
+              Сонгосон: {entries.length} нэр төрөл · {enteredTotal} порц
+              {isDirty && " · хадгалаагүй өөрчлөлттэй"}
+            </p>
+          </div>
+        </>
+      ) : (
+        /* Батлагдсан захиалга — зөвхөн харах хүснэгт */
+        <div className="rounded-lg border">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Хоол</TableHead>
+                <TableHead className="w-28">Порц</TableHead>
+                <TableHead className="w-28">Нэгж үнэ</TableHead>
+                <TableHead className="w-32">Дүн</TableHead>
+                <TableHead>Тайлбар</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {items.length === 0 ? (
+                <TableRow>
+                  <TableCell
+                    colSpan={5}
+                    className="h-16 text-center text-muted-foreground"
+                  >
+                    Мөр алга
+                  </TableCell>
+                </TableRow>
+              ) : (
+                items.map((item) => (
+                  <TableRow key={item.id}>
+                    <TableCell className="font-medium">
+                      {item.product?.name ?? "—"}{" "}
+                      <span className="font-mono text-xs text-muted-foreground">
+                        {item.product?.code}
+                      </span>
+                    </TableCell>
+                    <TableCell>{formatQty(item.qty)}</TableCell>
+                    <TableCell>
+                      {item.unit_price === null
+                        ? "—"
+                        : `${item.unit_price.toLocaleString("en-US")}₮`}
+                    </TableCell>
+                    <TableCell>
+                      {item.unit_price === null
+                        ? "—"
+                        : `${(item.qty * item.unit_price).toLocaleString("en-US")}₮`}
+                    </TableCell>
+                    <TableCell className="text-muted-foreground">
+                      {item.note ?? "—"}
+                    </TableCell>
+                  </TableRow>
+                ))
+              )}
+            </TableBody>
+          </Table>
+          {items.length > 0 && (
+            <p className="border-t px-4 py-2 text-sm text-muted-foreground">
+              Нийт: {items.length} мөр ·{" "}
+              {formatQty(items.reduce((s, i) => s + i.qty, 0))} порц
+            </p>
+          )}
         </div>
       )}
 
       {actionError && <p className="text-sm text-destructive">{actionError}</p>}
+
+      {/* Батлахын өмнөх баталгаажуулалт */}
+      <Dialog open={confirmOpen} onOpenChange={setConfirmOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Захиалга батлах</DialogTitle>
+            <DialogDescription>
+              {order.customer?.name} · Үйлдвэрлэх: {order.production_date}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="max-h-72 overflow-y-auto rounded-lg border">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Хоол</TableHead>
+                  <TableHead className="w-20 text-right">Порц</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {entries.map((e) => {
+                  const p = productById.get(e.product_id)
+                  return (
+                    <TableRow key={e.product_id}>
+                      <TableCell>
+                        {p?.name ?? "—"}
+                        {p && !p.hasActiveCard && (
+                          <Badge variant="outline" className="ml-2">
+                            ТК-гүй
+                          </Badge>
+                        )}
+                      </TableCell>
+                      <TableCell className="text-right font-medium">
+                        {e.qty}
+                      </TableCell>
+                    </TableRow>
+                  )
+                })}
+              </TableBody>
+            </Table>
+          </div>
+          <p className="text-sm text-muted-foreground">
+            Нийт: {entries.length} нэр төрөл · {enteredTotal} порц. Батласны
+            дараа мөрүүд өөрчлөгдөхгүй.
+          </p>
+          {cardlessEntered.length > 0 && (
+            <p className="flex items-center gap-2 text-sm text-amber-600">
+              <TriangleAlertIcon className="size-4 shrink-0" />
+              {cardlessEntered.length} хоол идэвхтэй ТК-гүй — батч үүсгэхээс
+              өмнө ТК шаардлагатай
+            </p>
+          )}
+          {actionError && (
+            <p className="text-sm text-destructive">{actionError}</p>
+          )}
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setConfirmOpen(false)}
+              disabled={confirming}
+            >
+              Болих
+            </Button>
+            <Button onClick={confirmOrder} disabled={confirming}>
+              <CheckIcon />
+              {confirming ? "Батлаж байна..." : "Батлах"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
