@@ -183,6 +183,39 @@ export type OrderItem = {
   created_at: string
 }
 
+// Үйлдвэрлэлийн батч (migration 0008)
+
+export type BatchStatus = "planned" | "in_production" | "done"
+
+export const BATCH_STATUS_LABELS: Record<BatchStatus, string> = {
+  planned: "Төлөвлөсөн",
+  in_production: "Үйлдвэрлэлд",
+  done: "Дууссан",
+}
+
+export type ProductionBatch = {
+  id: string
+  production_date: string
+  product_id: string
+  tech_card_id: string // батч үүсэх мөчийн идэвхтэй ТК (snapshot)
+  total_qty: number
+  status: BatchStatus
+  created_by: string | null
+  created_at: string
+  updated_at: string
+}
+
+// daily_material_needs view-ийн мөр (батч × ТК-ийн орц, DB талд Σ)
+export type DailyMaterialNeed = {
+  production_date: string
+  material_id: string
+  code: string
+  name: string
+  base_unit: CanonicalUnit
+  brutto_need: number // агуулахаас гаргах
+  netto_need: number // үйлдвэрлэлд орох
+}
+
 // Технологийн карт (migration 0005)
 
 export type TechCard = {

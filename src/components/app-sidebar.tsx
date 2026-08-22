@@ -31,6 +31,7 @@ import {
   BookOpenIcon,
   ChevronRightIcon,
   ClipboardListIcon,
+  FactoryIcon,
   HomeIcon,
   WarehouseIcon,
 } from "lucide-react";
@@ -120,6 +121,18 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
                 >
                   <ClipboardListIcon />
                   <span>Захиалга</span>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+            )}
+            {canAccess(user.role, "/production") && (
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  tooltip="Үйлдвэрлэл"
+                  isActive={pathname.startsWith("/production")}
+                  render={<Link href="/production" />}
+                >
+                  <FactoryIcon />
+                  <span>Үйлдвэрлэл</span>
                 </SidebarMenuButton>
               </SidebarMenuItem>
             )}

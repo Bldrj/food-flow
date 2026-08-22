@@ -271,8 +271,10 @@ erDiagram
 - **ТК snapshot энд БАЙХГҮЙ (2026-08-21, дизайн шүүмжээр анхны шийдвэрийг өөрчилсөн):** анх `order_items.tech_card_id`-г батлах мөчид хөлдөөхөөр төлөвлөж 0006-д хэрэгжүүлсэн ч 0007-д хасав. Учир нь ① гал тогоо **үйлдвэрлэх өдрөө** хүчинтэй идэвхтэй жороор хийдэг — батлах мөчид хөлдөөвөл хожмын үйлдвэрлэл хуучирсан хувилбарт түгжигдэж баримт бодит үйлдвэрлэлээс зөрнө; ② батч үүсэх мөчид нэг л идэвхтэй ТК байдаг тул «нэг батч = нэг ТК» өөрөө биелж, өөр өөр snapshot-той мөрүүд нэг батчид нийлэх асуудал үүсэхгүй; ③ хариуцлагын зааг: захиалга = эрэлт (хэн/юу/хэд/хэзээ), батч = гүйцэтгэл (яг ямар жороор). Snapshot нь `production_batches.tech_card_id` дээр батч үүсэх мөчид авагдана; ТК-гүй хоолын хатуу хориг мөн батч үүсгэх RPC дээр.
 - `qty` integer (2026-08-21): порц үргэлж бүхэл; хожим бутархай хэрэгтэй болбол integer→numeric өргөтгөл алдагдалгүй нэг alter. Нэг захиалгад нэг хоол давхардаж орж болно; батлагдсан захиалгын мөр trigger-ээр immutable.
 
-**production_batches** — өдрийн үйлдвэрлэлийн нэгтгэл (захиалгууд батлагдахад автоматаар үүснэ/шинэчлэгдэнэ)
-- `id`, `production_date`, `product_id`, `tech_card_id`, `total_qty` (Σ order_items.qty), `status (planned|in_production|done)`
+**production_batches** — өдрийн үйлдвэрлэлийн нэгтгэл ✅ `0008_production_batches.sql`
+- `id`, `production_date`, `product_id`, `tech_card_id` (**ТК snapshot энд** — батч үүсэх мөчийн идэвхтэй хувилбар, 0007-ын шийдвэр), `total_qty (integer, Σ order_items.qty)`, `status (planned|in_production|done)`, `created_by`, `created_at`, `updated_at`; UNIQUE `(production_date, product_id)`
+- **Шийдвэрүүд (2026-08-21):** `generate_batches(p_date, p_actor)` RPC-ээр үүснэ (менежер `/production` дээрээс дуудна): тухайн өдрийн батлагдсан захиалгыг Σ; идэвхтэй ТК-гүй хоолтой бол алдаа (хатуу хориг энд); дахин дуудахад planned батчийн тоог шинэчилж, захиалгагүй болсон planned батчийг устгаж, **үйлдвэрлэлд орсон батчид хүрэхгүй** — зөрүүг UI `daily_order_totals` view-тэй харьцуулж анхааруулна (шийдвэр хүний гарт). Advisory lock-оор зэрэг үүсгэх race хаагдсан; identity талбарууд (огноо/хоол/ТК) trigger-ээр immutable, total_qty зөвхөн RPC-ээр planned үед.
+- **View-үүд:** `daily_order_totals` (draft/cancelled-ээс бусад захиалгын Σ — батчтай харьцуулах эх сурвалж), `daily_material_needs` (батч × хөлдөөсөн ТК-ийн орц → материал бүрээр Σ бохир/цэвэр, DB талд exact numeric)
 
 **station_tasks** — станцын ажлын хуудас (батчаас үүснэ — захиалагч бүрээр биш, нэгтгэсэн тоогоор)
 - `id`, `production_batch_id`, `station`, `status (pending|in_progress|done)`, `started_at`, `finished_at`, `done_by`, `note`
@@ -329,7 +331,7 @@ erDiagram
 | `/tech-cards` | ТК-ийн жагсаалт + дэлгэрэнгүй: орцын бүлгүүд, брутто/нетто (гр/мл-ээр оруулж base_unit-ээр хадгална), хаягдлын %, гарцын жин, заавар, «Шинэ хувилбар» (бүлэг/орц хуулж v+1) | Менежер | ✅ 2026-08-21 (Жэюүг Excel-ээс импортлогдсон) |
 | `/orders` | Захиалгын жагсаалт (статус/огноо/хайлтын шүүлт), шинэ захиалга (захиалагч, үйлдвэрлэх огноо, хүргэлт) | Менежер | ✅ 2026-08-21 |
 | `/orders/[id]` | Захиалгын дэлгэрэнгүй: мөр нэмэх (ТК-гүй хоолны анхааруулга), батлах (confirm_order RPC → ТК snapshot), draft устгах | Менежер | ✅ 2026-08-21 (хүргэлтийн бүртгэл Үе 4-т) |
-| `/production` | Өдрийн батчууд, материалын хэрэгцээ vs үлдэгдэл (хүрэлцээний хүснэгт) | Менежер, Нярав | — |
+| `/production` | Өдрийн батчууд (generate_batches RPC, ТК snapshot, захиалгын зөрүүний анхааруулга), материалын хэрэгцээ vs үлдэгдэл (хүрэлцээний хүснэгт, дутагдал улаанаар) | Менежер, Нярав | ✅ 2026-08-21 (статус шилжилт Үе 3-т) |
 | `/stations/[station]` | Станцын ажлын хуудас — батчийн нэгтгэсэн тоогоор (таблет дээр том товчтой, энгийн UI) | Станцын ажилтан | — |
 | `/warehouse` | Үлдэгдэл (stock_balances view), материал бүрийн гүйлгээний түүх, тооллогын залруулга (adjust гүйлгээ), доод үлдэгдлийн анхааруулга | Менежер, Нярав | ✅ 2026-08-20 |
 | `/warehouse/receipts` | Бараа хүлээн авах (нийлүүлэгч, баримтын мөрүүд) — нийлүүлэгч системд нэвтрэхгүй, админ бүртгэнэ | Менежер, Нярав | ✅ 2026-08-20 |
@@ -374,6 +376,7 @@ erDiagram
 | `0005_tech_cards.sql` | Технологийн карт (2026-08-21): tech_cards (хувилбартай, 1 идэвхтэй/product partial unique index, portion_yield_g, олон мөрт instructions), tech_card_groups (орцын бүлэг — Master sheet-ийн бодит бүтэц), tech_card_items (brutto/netto base_unit-ээр, CHECK netto ≤ brutto, бүлэг дотроо материал UNIQUE). `station`-ийг түр хасав — Үе 3 дээр эргэж шийднэ |
 | `0006_orders.sql` | Захиалга (2026-08-21): orders (ORD-дугаарлалт, статусын бүрэн CHECK, confirmed_at invariant, батлагдсаныг хамгаалах trigger), order_items (immutable trigger FOR SHARE-тэй), `confirm_order()` RPC. Агуулахад нөлөөгүй |
 | `0007_orders_refine.sql` | Захиалгын засвар (2026-08-21, дизайн шүүмжийн дараа): ① `order_items.tech_card_id`-г хасав — ТК snapshot батч үүсэхэд авна («захиалга = эрэлт, батч = гүйцэтгэл»); ② confirm-оос ТК-ийн хатуу шалгалт хасагдаж батч руу шилжив; ③ `confirmed_by` нэмэв; ④ qty → integer (бутархай дата шалгах хамгаалалттай) |
+| `0008_production_batches.sql` | Үйлдвэрлэлийн батч (2026-08-21): production_batches (ТК snapshot, unique өдөр+хоол, identity immutable trigger, total_qty зөвхөн RPC-ээр), `generate_batches()` RPC (advisory lock, ТК-гүй бол алдаа, planned шинэчлэх/цэвэрлэх), daily_order_totals + daily_material_needs view-үүд. Мөн orders-оос `delivery_time`-ийг хасав |
 
 ---
 

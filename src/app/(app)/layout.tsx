@@ -29,6 +29,7 @@ const BREADCRUMBS: Record<string, string[]> = {
   "/products": ["Лавлагаа", "Хоол"],
   "/tech-cards": ["Лавлагаа", "Технологийн карт"],
   "/orders": ["Захиалга"],
+  "/production": ["Үйлдвэрлэл"],
   "/warehouse": ["Агуулах", "Үлдэгдэл"],
   "/warehouse/receipts": ["Агуулах", "Бараа хүлээн авах"],
 };
