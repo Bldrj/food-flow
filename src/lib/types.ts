@@ -251,6 +251,28 @@ export type DailyMaterialNeed = {
   netto_need: number // үйлдвэрлэлд орох
 }
 
+// Хүргэлт (migration 0013) — draft үе шатгүй, record_delivery RPC нэг
+// transaction-д бүртгэнэ; бүртгэсний дараа immutable
+
+export type Delivery = {
+  id: string
+  order_id: string
+  delivered_at: string
+  delivered_by: string | null // бүртгэсэн ажилтан
+  received_by: string | null // хүлээн авсан хүн (захиалагчийн тал)
+  note: string | null
+  created_at: string
+}
+
+export type DeliveryItem = {
+  id: string
+  delivery_id: string
+  order_item_id: string
+  delivered_qty: number // 0 = энэ мөрийг огт хүргээгүй
+  note: string | null
+  created_at: string
+}
+
 // Технологийн карт (migration 0005)
 
 export type TechCard = {

@@ -8,6 +8,8 @@ import { createClient } from "@/lib/supabase/client"
 import { useDevUser } from "@/components/dev-user-provider"
 import {
   ORDER_STATUS_LABELS,
+  type Delivery,
+  type DeliveryItem,
   type Order,
   type OrderItem,
 } from "@/lib/types"
@@ -23,6 +25,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
 import { Skeleton } from "@/components/ui/skeleton"
 import {
   Table,
@@ -39,6 +42,7 @@ import {
   SearchIcon,
   Trash2Icon,
   TriangleAlertIcon,
+  TruckIcon,
 } from "lucide-react"
 
 type OrderHeader = Order & { customer: { name: string } | null }
@@ -56,6 +60,8 @@ type ProductOption = {
 
 // Excel-маягийн оруулгаас гарсан "энэ хоолноос N порц" мөр
 type Entry = { product_id: string; qty: number }
+
+type DeliveryFull = Delivery & { items: DeliveryItem[] }
 
 function formatQty(n: number): string {
   return Number(n.toFixed(6)).toLocaleString("en-US", {
@@ -84,8 +90,15 @@ export default function OrderDetailPage() {
   const [confirmOpen, setConfirmOpen] = React.useState(false)
   const [confirming, setConfirming] = React.useState(false)
 
+  // Хүргэлт бүртгэх dialog
+  const [delivery, setDelivery] = React.useState<DeliveryFull | null>(null)
+  const [deliveryOpen, setDeliveryOpen] = React.useState(false)
+  const [dQtys, setDQtys] = React.useState<Record<string, string>>({})
+  const [dNote, setDNote] = React.useState("")
+  const [delivering, setDelivering] = React.useState(false)
+
   const load = React.useCallback(async () => {
-    const [ord, its] = await Promise.all([
+    const [ord, its, del] = await Promise.all([
       supabase
         .from("orders")
         .select("*, customer:customers(name)")
@@ -96,7 +109,13 @@ export default function OrderDetailPage() {
         .select("*, product:products(name, code)")
         .eq("order_id", params.id)
         .order("created_at"),
+      supabase
+        .from("deliveries")
+        .select("*, items:delivery_items(*)")
+        .eq("order_id", params.id)
+        .maybeSingle(),
     ])
+    setDelivery((del.data as DeliveryFull | null) ?? null)
     if (ord.error) {
       setLoadError(ord.error.message)
     } else {
@@ -290,6 +309,47 @@ export default function OrderDetailPage() {
     load()
   }
 
+  function openDelivery() {
+    setDQtys(Object.fromEntries(items.map((i) => [i.id, String(i.qty)])))
+    setDNote("")
+    setActionError(null)
+    setDeliveryOpen(true)
+  }
+
+  async function submitDelivery() {
+    if (!order) return
+    const bad: string[] = []
+    for (const i of items) {
+      const q = Number((dQtys[i.id] ?? "").trim())
+      if (!Number.isInteger(q) || q < 0) bad.push(i.product?.name ?? "?")
+    }
+    if (bad.length > 0) {
+      setActionError(
+        `Хүргэсэн тоо 0 буюу түүнээс их бүхэл тоо байх ёстой: ${bad.join(", ")}`,
+      )
+      return
+    }
+    setDelivering(true)
+    setActionError(null)
+    const { error } = await supabase.rpc("record_delivery", {
+      p_order_id: order.id,
+      p_items: items.map((i) => ({
+        order_item_id: i.id,
+        qty: Number(dQtys[i.id]),
+      })),
+      p_actor: user.name,
+      p_received_by: null,
+      p_note: dNote.trim() || null,
+    })
+    setDelivering(false)
+    if (error) {
+      setActionError(error.message)
+      return
+    }
+    setDeliveryOpen(false)
+    load()
+  }
+
   async function removeDraft() {
     if (!order) return
     const { error } = await supabase
@@ -354,6 +414,12 @@ export default function OrderDetailPage() {
               Хүргэх: {order.delivery_date ?? "мөн өдөр"}
               {order.created_by ? ` · ${order.created_by}` : ""}
               {order.note ? ` · ${order.note}` : ""}
+              {delivery
+                ? ` · Хүргэсэн: ${new Date(delivery.delivered_at).toLocaleString(
+                    "sv-SE",
+                    { dateStyle: "short", timeStyle: "short" },
+                  )}${delivery.received_by ? ` (хүлээн авсан: ${delivery.received_by})` : ""}`
+                : ""}
             </p>
           </div>
         </div>
@@ -377,6 +443,12 @@ export default function OrderDetailPage() {
                 Батлах
               </Button>
             </>
+          )}
+          {order.status === "confirmed" && (
+            <Button onClick={openDelivery}>
+              <TruckIcon />
+              Хүргэлт бүртгэх
+            </Button>
           )}
         </div>
       </div>
@@ -482,6 +554,12 @@ export default function OrderDetailPage() {
               <TableRow>
                 <TableHead>Хоол</TableHead>
                 <TableHead className="w-28">Порц</TableHead>
+                {delivery && (
+                  <>
+                    <TableHead className="w-28">Хүргэсэн</TableHead>
+                    <TableHead className="w-24">Зөрүү</TableHead>
+                  </>
+                )}
                 <TableHead className="w-28">Нэгж үнэ</TableHead>
                 <TableHead className="w-32">Дүн</TableHead>
                 <TableHead>Тайлбар</TableHead>
@@ -491,37 +569,60 @@ export default function OrderDetailPage() {
               {items.length === 0 ? (
                 <TableRow>
                   <TableCell
-                    colSpan={5}
+                    colSpan={delivery ? 7 : 5}
                     className="h-16 text-center text-muted-foreground"
                   >
                     Мөр алга
                   </TableCell>
                 </TableRow>
               ) : (
-                items.map((item) => (
-                  <TableRow key={item.id}>
-                    <TableCell className="font-medium">
-                      {item.product?.name ?? "—"}{" "}
-                      <span className="font-mono text-xs text-muted-foreground">
-                        {item.product?.code}
-                      </span>
-                    </TableCell>
-                    <TableCell>{formatQty(item.qty)}</TableCell>
-                    <TableCell>
-                      {item.unit_price === null
-                        ? "—"
-                        : `${item.unit_price.toLocaleString("en-US")}₮`}
-                    </TableCell>
-                    <TableCell>
-                      {item.unit_price === null
-                        ? "—"
-                        : `${(item.qty * item.unit_price).toLocaleString("en-US")}₮`}
-                    </TableCell>
-                    <TableCell className="text-muted-foreground">
-                      {item.note ?? "—"}
-                    </TableCell>
-                  </TableRow>
-                ))
+                items.map((item) => {
+                  const dItem = delivery?.items.find(
+                    (d) => d.order_item_id === item.id,
+                  )
+                  const diff =
+                    dItem === undefined ? 0 : item.qty - dItem.delivered_qty
+                  return (
+                    <TableRow key={item.id}>
+                      <TableCell className="font-medium">
+                        {item.product?.name ?? "—"}{" "}
+                        <span className="font-mono text-xs text-muted-foreground">
+                          {item.product?.code}
+                        </span>
+                      </TableCell>
+                      <TableCell>{formatQty(item.qty)}</TableCell>
+                      {delivery && (
+                        <>
+                          <TableCell className="font-medium">
+                            {dItem ? formatQty(dItem.delivered_qty) : "—"}
+                          </TableCell>
+                          <TableCell
+                            className={
+                              diff !== 0
+                                ? "font-medium text-destructive"
+                                : "text-muted-foreground"
+                            }
+                          >
+                            {diff !== 0 ? `−${formatQty(diff)}` : "0"}
+                          </TableCell>
+                        </>
+                      )}
+                      <TableCell>
+                        {item.unit_price === null
+                          ? "—"
+                          : `${item.unit_price.toLocaleString("en-US")}₮`}
+                      </TableCell>
+                      <TableCell>
+                        {item.unit_price === null
+                          ? "—"
+                          : `${(item.qty * item.unit_price).toLocaleString("en-US")}₮`}
+                      </TableCell>
+                      <TableCell className="text-muted-foreground">
+                        {item.note ?? "—"}
+                      </TableCell>
+                    </TableRow>
+                  )
+                })
               )}
             </TableBody>
           </Table>
@@ -535,6 +636,83 @@ export default function OrderDetailPage() {
       )}
 
       {actionError && <p className="text-sm text-destructive">{actionError}</p>}
+
+      {/* Хүргэлт бүртгэх */}
+      <Dialog open={deliveryOpen} onOpenChange={setDeliveryOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Хүргэлт бүртгэх</DialogTitle>
+            <DialogDescription>
+              {order.customer?.name} · {order.order_no}. Дутуу хүргэсэн бол
+              тоог нь засна, огт хүргээгүй мөрөнд 0 бичнэ.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="max-h-64 overflow-y-auto rounded-lg border">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Хоол</TableHead>
+                  <TableHead className="w-24 text-right">Захиалсан</TableHead>
+                  <TableHead className="w-28">Хүргэсэн</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {items.map((item) => (
+                  <TableRow key={item.id}>
+                    <TableCell>{item.product?.name ?? "—"}</TableCell>
+                    <TableCell className="text-right">
+                      {formatQty(item.qty)}
+                    </TableCell>
+                    <TableCell>
+                      <Input
+                        type="number"
+                        min="0"
+                        step="1"
+                        className="h-8 w-24"
+                        value={dQtys[item.id] ?? ""}
+                        onChange={(e) =>
+                          setDQtys((q) => ({
+                            ...q,
+                            [item.id]: e.target.value,
+                          }))
+                        }
+                      />
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+          <div className="grid gap-2">
+            <Label htmlFor="delivery_note">Тэмдэглэл</Label>
+            <Input
+              id="delivery_note"
+              value={dNote}
+              onChange={(e) => setDNote(e.target.value)}
+            />
+          </div>
+          <p className="text-xs text-muted-foreground">
+            Бүртгэсний дараа өөрчлөх боломжгүй. Захиалга «Хүргэгдсэн» болж,
+            хүргэлт дууссан хоолны батчууд автоматаар «Дууссан» болно.
+          </p>
+          {actionError && (
+            <p className="text-sm text-destructive">{actionError}</p>
+          )}
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setDeliveryOpen(false)}
+              disabled={delivering}
+            >
+              Болих
+            </Button>
+            <Button onClick={submitDelivery} disabled={delivering}>
+              <TruckIcon />
+              {delivering ? "Бүртгэж байна..." : "Бүртгэх"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Батлахын өмнөх баталгаажуулалт */}
       <Dialog open={confirmOpen} onOpenChange={setConfirmOpen}>
