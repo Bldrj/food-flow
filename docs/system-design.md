@@ -296,11 +296,20 @@ erDiagram
 - **Snapshot дүрэм:** `conversion_rate`-ийг баримт дээр хадгална — `material_suppliers.pack_qty` хожим 12→15 болсон ч хуучин GR "3 box × 12 = 36 kg" хэвээр. Generated column тул `input × rate ≠ base` зөрүү гарах боломжгүй, normalize DB-д exact numeric-ээр хийгдэнэ.
 - `goods_receipt_items_immutable` trigger: харьяа баримт `confirmed` бол INSERT/UPDATE/DELETE бүгд хориотой — залруулга зөвхөн `adjust` гүйлгээгээр.
 
-**stock_issues** — үйлдвэрлэлийн зарлагын хүсэлт (батчийн тооцооллоос үүснэ, нярав баталгаажуулдаг)
-- `id`, `production_date`, `material_id`, `calculated_qty` (норм = Σ брутто × порц), `issued_qty` (бодит), `status (pending|issued)`, `issued_by`, `issued_at`, `note`
+**stock_issues + stock_issue_items** — агуулахын зарлагын баримт ✅ `0010_stock_issues.sql`
+- Толгой: `id`, `issue_no (ISS-000001, автомат)`, `production_date` (аль өдрийн үйлдвэрлэлд), `status (draft|confirmed)`, `created_by`, `confirmed_by`, `confirmed_at`, `note`. Мөр: `material_id`, `qty` (base_unit-ээр), `note`, **unique(issue, material)** — нэг баримтад нэг материал нэг мөр.
+- **Шийдвэрүүд (2026-08-23, дизайн шүүмжийн дараа):**
+  - Орлогын баримттай тэгш хэмтэй загвар: draft → `confirm_stock_issue()` RPC → ledger-т `out` мөрүүд. Hardening бүгд ижил (header/item immutable trigger, `app.confirming_si` флаг, FOR SHARE race хаалт).
+  - **Зарлага өдрийн түвшинд, батчид хуваарилагдахгүй**: нэг материалын олголт өдрийн хэд хэдэн батчийн нийлбэр хэрэгцээг хангадаг тул батчийн FK худал холбоос үүсгэнэ. Батч түвшний хэрэгцээ `daily_material_needs`-т бий.
+  - **Хасах үлдэгдлийг зөвшөөрнө**: нярав бодитоор олгосон бол бичигдэх ёстой. Хасах үлдэгдэл = бүртгэлийн зөрүүний *дохио* (орлого дутуу, буруу материал/тоо, нэгжийн алдаа г.м.) — шалтгааныг тогтоосны дараа нөхөн орлого эсвэл adjust; автомат "adjust хий" дүрэм байхгүй. UI батлахын өмнө улаан анхааруулга + /warehouse дээр хасах үлдэгдлийн banner. RPC-д үлдэгдлийн шалгалт *зориуд* байхгүй (зөвшөөрдөг бодлоготой үед үр дүнгүй).
+  - **Idempotency давхар давхаргаар**: confirm зөвхөн draft дээр (FOR UPDATE) + DB-д partial unique index `(stock_issue_id, material_id)` — давхар ledger insertion боломжгүй.
+  - **Ledger source integrity CHECK** (`stock_movements_source_check`): нэг movement зэрэг орлого+зарлагын баримтад харьяалагдахгүй; `in` ↔ goods_receipt, `out` ↔ stock_issue (out заавал баримттай), adjust баримтгүй.
+  - Cancel байхгүй (immutable) — буруу олголтын зөв урт хугацааны шийдэл нь explicit reversal баримт, MVP-д adjust.
+- **`daily_issued_totals` view**: батлагдсан зарлагын Σ (өдөр+материал) — /production-ийн «Олгосон» багана ба delta prefill-ийн эх сурвалж. Энэ нь *баримтын* нийлбэр; үлдэгдэл зөвхөн ledger-ээс (`stock_movements = inventory truth, stock_issues = business document`).
+- **Delta prefill урсгал**: /production-ийн «Материал олгох» товч дутуу олголтын (хэрэгцээ − олгосон) хэмжээгээр ноорог үүсгэнэ → нярав бодит тоогоо мөрөн дээр нь засаад батална. Нэмэлт захиалгаар хэрэгцээ өсвөл дараагийн даралт зөвхөн зөрүүний 2-р баримт үүсгэнэ.
 
 **stock_movements** — агуулахын ledger, **source of truth** ✅ `0002_warehouse_ledger.sql`
-- `id`, `material_id (FK restrict)`, `type (in|out|adjust)`, `qty` (base_unit-ээр; in/out эерэг, adjust тэмдэгтэй ба 0 биш — CHECK-ээр), `unit_price`, `goods_receipt_id (nullable)`, `stock_issue_id (nullable — зарлагын алхам дээр нэмэгдэнэ)`, `created_by`, `created_at`, `note`
+- `id`, `material_id (FK restrict)`, `type (in|out|adjust)`, `qty` (base_unit-ээр; in/out эерэг, adjust тэмдэгтэй ба 0 биш — CHECK-ээр), `unit_price`, `goods_receipt_id (nullable)`, `stock_issue_id (nullable, 0010-д нэмэгдсэн; source integrity CHECK + partial unique index-тэй)`, `created_by`, `created_at`, `note`
 - **Append-only:** UPDATE/DELETE-ийг trigger шууд хориглоно — алдааг хуучин мөр засаж биш, `adjust` төрлийн шинэ мөрөөр залруулна. Гараар шууд бичихгүй — зөвхөн баримт батлах RPC бичнэ.
 - Үлдэгдэл = `SUM(in) − SUM(out) ± adjust` — `stock_balances` view (материалын нэр/нэгж/`min_stock`-той join хийсэн, exact numeric). Нийлүүлэгчийг энд давхардуулж хадгалахгүй — `goods_receipt_id`-ээр мөшгинө.
 - **`unit_price` яагаад энд давхар байгаа вэ** (`goods_receipt_items.unit_price` байсаар байтал): ① гүйлгээ баримтын *толгой* руу л заадаг тул нэг баримтад ижил материалын хоёр мөр (өөр lot, өөр үнэ) байвал join-оор үнийг буцааж олох аргагүй; ② `adjust` (мөн хожмын `out`) гүйлгээ баримтын мөргүй — үнэлгээнд өөрийн үнэ хэрэгтэй; ③ ledger ганцаараа тоо + мөнгөн үнэлгээ хоёуланг гаргаж чаддаг байх зарчим (conversion_rate snapshot-той ижил логик: гүйлгээ үүссэн мөчийн үнэ хөлдөж үлдэнэ). Утгын ялгаа: items-ийн үнэ = худалдан авалтын бичиг баримт, ledger-ийн үнэ = агуулахын үнэлгээ (зарлага дээр дундаж/FIFO өртгөөр өөр байж болно).
@@ -339,10 +348,11 @@ erDiagram
 | `/tech-cards` | ТК-ийн жагсаалт + дэлгэрэнгүй: орцын бүлгүүд, брутто/нетто (гр/мл-ээр оруулж base_unit-ээр хадгална), хаягдлын %, гарцын жин, заавар, «Шинэ хувилбар» (бүлэг/орц хуулж v+1) | Менежер | ✅ 2026-08-21 (Жэюүг Excel-ээс импортлогдсон) |
 | `/orders` | Захиалгын жагсаалт (статус/огноо/хайлтын шүүлт), шинэ захиалга (захиалагч, үйлдвэрлэх огноо, хүргэлт) | Менежер | ✅ 2026-08-21 |
 | `/orders/[id]` | Захиалгын дэлгэрэнгүй: мөр нэмэх (ТК-гүй хоолны анхааруулга), батлах (confirm_order RPC → ТК snapshot), draft устгах | Менежер | ✅ 2026-08-21 (хүргэлтийн бүртгэл Үе 4-т) |
-| `/production` | Өдрийн батчууд (generate_batches RPC, ТК snapshot, захиалгын зөрүүний анхааруулга), материалын хэрэгцээ vs үлдэгдэл (хүрэлцээний хүснэгт, дутагдал улаанаар) | Менежер, Нярав | ✅ 2026-08-21 (статус шилжилт Үе 3-т) |
+| `/production` | Өдрийн батчууд (generate_batches RPC, ТК snapshot, захиалгын зөрүүний анхааруулга), материалын хэрэгцээ / олгосон / дутуу олголт / үлдэгдэл + «Материал олгох» delta prefill | Менежер, Нярав | ✅ 2026-08-21, олголт 2026-08-23 (статус шилжилт Үе 3-т) |
 | `/stations/[station]` | Станцын ажлын хуудас — батчийн нэгтгэсэн тоогоор (таблет дээр том товчтой, энгийн UI) | Станцын ажилтан | — |
 | `/warehouse` | Үлдэгдэл (stock_balances view), материал бүрийн гүйлгээний түүх, тооллогын залруулга (adjust гүйлгээ), доод үлдэгдлийн анхааруулга | Менежер, Нярав | ✅ 2026-08-20 |
 | `/warehouse/receipts` | Бараа хүлээн авах (нийлүүлэгч, баримтын мөрүүд) — нийлүүлэгч системд нэвтрэхгүй, админ бүртгэнэ | Менежер, Нярав | ✅ 2026-08-20 |
+| `/warehouse/issues` | Материал олгох (зарлагын баримт): мөрөн дээр шууд тоо засах, үлдэгдэл/батласны дараах багана, хасах үлдэгдлийн анхааруулгатай батлах | Менежер, Нярав | ✅ 2026-08-23 |
 | `/warehouse/issues` | Зарлагын хүсэлтүүд, баталгаажуулах | Нярав | — |
 | `/deliveries` | Хүргэлт бүртгэх (захиалгын мөр бүрээр бодит тоо) | Хүргэлт | — |
 | `/reports` | Зарцуулалт (норм vs бодит), нийлүүлэгчээр татан авалт, үлдэгдэл, хүргэлтийн зөрүү | Менежер | — |
@@ -386,6 +396,7 @@ erDiagram
 | `0007_orders_refine.sql` | Захиалгын засвар (2026-08-21, дизайн шүүмжийн дараа): ① `order_items.tech_card_id`-г хасав — ТК snapshot батч үүсэхэд авна («захиалга = эрэлт, батч = гүйцэтгэл»); ② confirm-оос ТК-ийн хатуу шалгалт хасагдаж батч руу шилжив; ③ `confirmed_by` нэмэв; ④ qty → integer (бутархай дата шалгах хамгаалалттай) |
 | `0008_production_batches.sql` | Үйлдвэрлэлийн батч (2026-08-21): production_batches (ТК snapshot, unique өдөр+хоол, identity immutable trigger, total_qty зөвхөн RPC-ээр), `generate_batches()` RPC (advisory lock, ТК-гүй бол алдаа, planned шинэчлэх/цэвэрлэх), daily_order_totals + daily_material_needs view-үүд. Мөн orders-оос `delivery_time`-ийг хасав |
 | `0009_material_categories.sql` | Түүхий эдийн ангиллын мод (2026-08-22): material_categories (parent_id, дурын гүн, цикл хориглох trigger, нэг эцгийн доор нэр UNIQUE), materials.category_id FK, хуучин enum → 3 үндсэн ангилал болж шилжээд `category` багана хасагдав, stock_balances view category_id-тай дахин үүсэв |
+| `0010_stock_issues.sql` | Агуулахын зарлага (2026-08-23): stock_issues + stock_issue_items (ISS-дугаарлалт, draft→confirmed, receipts-ийн бүх hardening), `confirm_stock_issue()` RPC (ledger-т out), stock_movements.stock_issue_id + source integrity CHECK + partial unique index (idempotency), `daily_issued_totals` view. Хасах үлдэгдэл зөвшөөрөгдөнө (анхааруулгатай) |
 
 ---
 

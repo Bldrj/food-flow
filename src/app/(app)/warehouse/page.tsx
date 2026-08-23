@@ -51,6 +51,7 @@ import { SearchIcon, TriangleAlertIcon } from "lucide-react"
 
 type MovementRow = StockMovement & {
   goods_receipt: { receipt_no: string } | null
+  stock_issue: { issue_no: string } | null
 }
 
 function formatQty(n: number): string {
@@ -140,13 +141,16 @@ export default function WarehousePage() {
   })
 
   const lowCount = rows.filter(belowMin).length
+  const negativeCount = rows.filter((r) => r.balance < 0).length
 
   const loadMovements = React.useCallback(
     async (materialId: string) => {
       setMovementsLoading(true)
       const { data, error } = await supabase
         .from("stock_movements")
-        .select("*, goods_receipt:goods_receipts(receipt_no)")
+        .select(
+          "*, goods_receipt:goods_receipts(receipt_no), stock_issue:stock_issues(issue_no)",
+        )
         .eq("material_id", materialId)
         .order("created_at", { ascending: false })
       if (!error && data) setMovements(data as MovementRow[])
@@ -215,6 +219,17 @@ export default function WarehousePage() {
           Бараа хүлээн авах
         </Button>
       </div>
+
+      {negativeCount > 0 && (
+        <div className="flex items-center gap-2 rounded-lg border border-destructive/50 bg-destructive/10 p-3 text-sm">
+          <TriangleAlertIcon className="size-4 shrink-0 text-destructive" />
+          <p>
+            <span className="font-medium">{negativeCount} материал</span> хасах
+            үлдэгдэлтэй — бүртгэлийн зөрүү байж болзошгүй тул шалтгааныг
+            тогтоогоод нөхөн орлого эсвэл залруулга хийнэ үү
+          </p>
+        </div>
+      )}
 
       {lowCount > 0 && (
         <div className="flex items-center gap-2 rounded-lg border border-amber-500/50 bg-amber-500/10 p-3 text-sm">
@@ -458,6 +473,13 @@ export default function WarehousePage() {
                                   className="font-mono text-xs underline-offset-2 hover:underline"
                                 >
                                   {m.goods_receipt.receipt_no}
+                                </Link>
+                              ) : m.stock_issue_id && m.stock_issue ? (
+                                <Link
+                                  href={`/warehouse/issues/${m.stock_issue_id}`}
+                                  className="font-mono text-xs underline-offset-2 hover:underline"
+                                >
+                                  {m.stock_issue.issue_no}
                                 </Link>
                               ) : (
                                 "—"

@@ -126,9 +126,42 @@ export type StockMovement = {
   qty: number // in/out: эерэг; adjust: тэмдэгтэй
   unit_price: number | null
   goods_receipt_id: string | null
+  stock_issue_id: string | null // migration 0010
   created_by: string | null
   note: string | null
   created_at: string
+}
+
+// Агуулахын зарлага (migration 0010) — draft → confirm_stock_issue RPC →
+// ledger-т out мөрүүд. Өдрийн түвшинд (production_date), батчид хуваарилагдахгүй.
+
+export type StockIssue = {
+  id: string
+  issue_no: string // ISS-000001 (автомат)
+  production_date: string
+  status: ReceiptStatus // draft | confirmed (receipts-тэй ижил)
+  created_by: string | null
+  confirmed_by: string | null
+  confirmed_at: string | null
+  note: string | null
+  created_at: string
+  updated_at: string
+}
+
+export type StockIssueItem = {
+  id: string
+  stock_issue_id: string
+  material_id: string
+  qty: number // base_unit-ээр
+  note: string | null
+  created_at: string
+}
+
+// daily_issued_totals view-ийн мөр (батлагдсан зарлагын Σ, өдөр+материалаар)
+export type DailyIssuedTotal = {
+  production_date: string
+  material_id: string
+  issued_qty: number
 }
 
 // Захиалга (migration 0006)

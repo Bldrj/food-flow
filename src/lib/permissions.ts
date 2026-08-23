@@ -22,6 +22,7 @@ export const PAGE_ROLES: Record<string, Role[]> = {
   "/production": ["manager", "storekeeper"],
   "/warehouse": ["manager", "storekeeper"],
   "/warehouse/receipts": ["manager", "storekeeper"],
+  "/warehouse/issues": ["manager", "storekeeper"],
 }
 
 export function canAccess(role: Role, pathname: string): boolean {

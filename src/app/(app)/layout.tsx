@@ -33,6 +33,7 @@ const BREADCRUMBS: Record<string, string[]> = {
   "/production": ["Үйлдвэрлэл"],
   "/warehouse": ["Агуулах", "Үлдэгдэл"],
   "/warehouse/receipts": ["Агуулах", "Бараа хүлээн авах"],
+  "/warehouse/issues": ["Агуулах", "Материал олгох"],
 };
 
 function AccessDenied({ roleLabel }: { roleLabel: string }) {

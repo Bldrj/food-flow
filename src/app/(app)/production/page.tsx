@@ -2,6 +2,7 @@
 
 import * as React from "react"
 import Link from "next/link"
+import { useRouter } from "next/navigation"
 
 import { createClient } from "@/lib/supabase/client"
 import { useDevUser } from "@/components/dev-user-provider"
@@ -9,6 +10,7 @@ import {
   BASE_UNIT_LABELS,
   BATCH_STATUS_LABELS,
   type BatchStatus,
+  type DailyIssuedTotal,
   type DailyMaterialNeed,
   type ProductionBatch,
 } from "@/lib/types"
@@ -25,7 +27,11 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
-import { RefreshCwIcon, TriangleAlertIcon } from "lucide-react"
+import {
+  PackageOpenIcon,
+  RefreshCwIcon,
+  TriangleAlertIcon,
+} from "lucide-react"
 
 type BatchRow = ProductionBatch & {
   product: { name: string; code: string } | null
@@ -38,7 +44,7 @@ type OrderTotal = {
   order_count: number
 }
 
-type NeedRow = DailyMaterialNeed & { balance: number }
+type NeedRow = DailyMaterialNeed & { balance: number; issued: number }
 
 const STATUS_BADGE: Record<BatchStatus, "default" | "outline" | "secondary"> = {
   planned: "outline",
@@ -58,6 +64,7 @@ function formatQty(n: number): string {
 
 export default function ProductionPage() {
   const supabase = React.useMemo(() => createClient(), [])
+  const router = useRouter()
   const { user } = useDevUser()
 
   const [date, setDate] = React.useState(today())
@@ -66,11 +73,12 @@ export default function ProductionPage() {
   const [needs, setNeeds] = React.useState<NeedRow[]>([])
   const [loading, setLoading] = React.useState(true)
   const [generating, setGenerating] = React.useState(false)
+  const [issuing, setIssuing] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
 
   const load = React.useCallback(async () => {
     setLoading(true)
-    const [batchRes, totalsRes, needsRes] = await Promise.all([
+    const [batchRes, totalsRes, needsRes, issuedRes] = await Promise.all([
       supabase
         .from("production_batches")
         .select(
@@ -87,12 +95,23 @@ export default function ProductionPage() {
         .select("*")
         .eq("production_date", date)
         .order("name"),
+      supabase
+        .from("daily_issued_totals")
+        .select("material_id, issued_qty")
+        .eq("production_date", date),
     ])
     setBatches((batchRes.data ?? []) as BatchRow[])
     setOrderTotals((totalsRes.data ?? []) as OrderTotal[])
 
-    // Хэрэгцээтэй материалуудын үлдэгдлийг ledger-ийн view-ээс авч хавсаргана
+    // Хэрэгцээтэй материалуудын үлдэгдэл (ledger) + олгосон Σ (батлагдсан
+    // зарлагын баримтууд) хоёрыг хавсаргана
     const needRows = (needsRes.data ?? []) as DailyMaterialNeed[]
+    const issuedById = new Map(
+      ((issuedRes.data ?? []) as DailyIssuedTotal[]).map((r) => [
+        r.material_id,
+        Number(r.issued_qty),
+      ]),
+    )
     if (needRows.length > 0) {
       const ids = needRows.map((n) => n.material_id)
       const { data: balances } = await supabase
@@ -106,6 +125,7 @@ export default function ProductionPage() {
         needRows.map((n) => ({
           ...n,
           balance: Number(byId.get(n.material_id) ?? 0),
+          issued: issuedById.get(n.material_id) ?? 0,
         })),
       )
     } else {
@@ -145,7 +165,45 @@ export default function ProductionPage() {
   })
   const needsRefresh = unbatchedTotals.length > 0 || staleBatches.length > 0
 
-  const shortage = needs.filter((n) => n.balance < n.brutto_need)
+  // Дутуу олголт = хэрэгцээ − олгосон (0-ээс доош орохгүй); нэмэлт захиалгаар
+  // хэрэгцээ өссөн бол зөрүү нь энд гарч ирнэ
+  const remaining = (n: NeedRow) => Math.max(n.brutto_need - n.issued, 0)
+  const toIssue = needs.filter((n) => remaining(n) > 0)
+  const shortage = needs.filter((n) => n.balance < remaining(n))
+
+  // Дутуу олголтын хэмжээгээр зарлагын ноорог үүсгээд баримт руу үсэрнэ
+  async function createIssueDraft() {
+    if (toIssue.length === 0) return
+    setIssuing(true)
+    setError(null)
+    const { data: issue, error: headErr } = await supabase
+      .from("stock_issues")
+      .insert({
+        production_date: date,
+        created_by: user.name,
+        note: "Батчийн хэрэгцээгээр урьдчилан бөглөгдсөн",
+      })
+      .select("id")
+      .single()
+    if (headErr || !issue) {
+      setError(headErr?.message ?? "Зарлага үүсгэж чадсангүй")
+      setIssuing(false)
+      return
+    }
+    const { error: itemErr } = await supabase.from("stock_issue_items").insert(
+      toIssue.map((n) => ({
+        stock_issue_id: issue.id,
+        material_id: n.material_id,
+        qty: Number(remaining(n).toFixed(6)),
+      })),
+    )
+    setIssuing(false)
+    if (itemErr) {
+      setError(itemErr.message)
+      return
+    }
+    router.push(`/warehouse/issues/${issue.id}`)
+  }
 
   return (
     <div className="flex flex-col gap-4">
@@ -286,33 +344,49 @@ export default function ProductionPage() {
             </Table>
           </div>
 
-          {/* Материалын хэрэгцээ vs үлдэгдэл */}
+          {/* Материалын хэрэгцээ vs олгосон vs үлдэгдэл */}
           {needs.length > 0 && (
             <>
               <div className="flex flex-wrap items-center justify-between gap-2">
-                <h2 className="font-medium">Материалын хэрэгцээ</h2>
-                {shortage.length > 0 && (
-                  <p className="text-sm text-destructive">
-                    {shortage.length} материал дутагдалтай
-                  </p>
-                )}
+                <div className="flex items-center gap-3">
+                  <h2 className="font-medium">Материалын хэрэгцээ</h2>
+                  {shortage.length > 0 && (
+                    <p className="text-sm text-destructive">
+                      {shortage.length} материал дутагдалтай
+                    </p>
+                  )}
+                </div>
+                <Button
+                  variant="outline"
+                  onClick={createIssueDraft}
+                  disabled={issuing || toIssue.length === 0}
+                >
+                  <PackageOpenIcon />
+                  {issuing
+                    ? "Үүсгэж байна..."
+                    : toIssue.length === 0
+                      ? "Бүх материал олгогдсон"
+                      : `Материал олгох (${toIssue.length})`}
+                </Button>
               </div>
               <div className="rounded-lg border">
                 <Table>
                   <TableHeader>
                     <TableRow>
                       <TableHead>Материал</TableHead>
-                      <TableHead className="w-36">
+                      <TableHead className="w-32">
                         Хэрэгцээ (бохир)
                       </TableHead>
+                      <TableHead className="w-32">Олгосон</TableHead>
+                      <TableHead className="w-32">Дутуу олголт</TableHead>
                       <TableHead className="w-32">Үлдэгдэл</TableHead>
-                      <TableHead className="w-32">Зөрүү</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {needs.map((n) => {
-                      const diff = n.balance - n.brutto_need
-                      const short = diff < 0
+                      const rem = remaining(n)
+                      const short = n.balance < rem
+                      const unit = BASE_UNIT_LABELS[n.base_unit]
                       return (
                         <TableRow key={n.material_id}>
                           <TableCell className="font-medium">
@@ -322,25 +396,35 @@ export default function ProductionPage() {
                             </span>
                           </TableCell>
                           <TableCell>
-                            {formatQty(n.brutto_need)}{" "}
-                            {BASE_UNIT_LABELS[n.base_unit]}
-                          </TableCell>
-                          <TableCell>
-                            {formatQty(n.balance)}{" "}
-                            {BASE_UNIT_LABELS[n.base_unit]}
+                            {formatQty(n.brutto_need)} {unit}
                           </TableCell>
                           <TableCell
                             className={
-                              short
-                                ? "text-destructive font-medium"
+                              n.issued > 0 ? "" : "text-muted-foreground"
+                            }
+                          >
+                            {formatQty(n.issued)} {unit}
+                          </TableCell>
+                          <TableCell
+                            className={
+                              rem > 0
+                                ? "font-medium"
                                 : "text-muted-foreground"
                             }
                           >
-                            {short && (
+                            {formatQty(rem)} {unit}
+                          </TableCell>
+                          <TableCell
+                            className={
+                              short || n.balance < 0
+                                ? "text-destructive font-medium"
+                                : ""
+                            }
+                          >
+                            {(short || n.balance < 0) && (
                               <TriangleAlertIcon className="mr-1 inline size-3.5" />
                             )}
-                            {formatQty(diff)}{" "}
-                            {BASE_UNIT_LABELS[n.base_unit]}
+                            {formatQty(n.balance)} {unit}
                           </TableCell>
                         </TableRow>
                       )
@@ -349,9 +433,11 @@ export default function ProductionPage() {
                 </Table>
               </div>
               <p className="text-xs text-muted-foreground">
-                Хэрэгцээ = батчийн порц × ТК-ийн бохир хэмжээ (DB талд
-                бодогдоно). Дутагдалтай бол орлого авах эсвэл захиалгаа
-                тохируулна — зарлагын баримт Үе 3-т нэмэгдэнэ.
+                Хэрэгцээ = батчийн порц × ТК-ийн бохир хэмжээ; Олгосон =
+                батлагдсан зарлагын Σ (хоёул DB талд бодогдоно). «Материал
+                олгох» нь дутуу олголтын хэмжээгээр зарлагын ноорог үүсгэнэ —
+                нярав бодит тоогоо засаад батлахад үлдэгдлээс хасагдана.
+                Улаан = үлдэгдэл дутуу олголтод хүрэлцэхгүй.
               </p>
             </>
           )}

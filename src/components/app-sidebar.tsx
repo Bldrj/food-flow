@@ -50,6 +50,7 @@ const MASTER_DATA_ITEMS = [
 const WAREHOUSE_ITEMS = [
   { title: "Үлдэгдэл", url: "/warehouse" },
   { title: "Бараа хүлээн авах", url: "/warehouse/receipts" },
+  { title: "Материал олгох", url: "/warehouse/issues" },
 ];
 
 export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
