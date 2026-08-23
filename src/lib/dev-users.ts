@@ -1,7 +1,9 @@
 // Тест/хөгжүүлэлтийн үед login-гүйгээр дүр сольж ажиллах mock хэрэглэгчид.
 // Auth идэвхжсэний дараа энэ жагсаалтыг Supabase profiles хүснэгтээр солино.
 
-export type Role = "manager" | "storekeeper" | "station" | "delivery"
+// "delivery" дүрийг хассан (2026-08-23): хүргэлтийн мэдээлэл цаасаар ирж,
+// менежер системд оруулдаг тул тусдаа дүр шаардлагагүй
+export type Role = "manager" | "storekeeper" | "station"
 export type Station = "prep" | "hot" | "packaging"
 
 export type DevUser = {
@@ -45,11 +47,5 @@ export const DEV_USERS: DevUser[] = [
     role: "station",
     station: "packaging",
     roleLabel: "Станц — Савлагаа",
-  },
-  {
-    id: "delivery",
-    name: "Хүргэлт",
-    role: "delivery",
-    roleLabel: "Хүргэлт",
   },
 ]

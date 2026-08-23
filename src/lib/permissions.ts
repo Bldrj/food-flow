@@ -8,7 +8,6 @@ export const ALL_ROLES: Role[] = [
   "manager",
   "storekeeper",
   "station",
-  "delivery",
 ]
 
 export const PAGE_ROLES: Record<string, Role[]> = {
