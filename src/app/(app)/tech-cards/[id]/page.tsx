@@ -97,13 +97,13 @@ const EMPTY_ITEM_FORM: ItemForm = {
   netto: "",
 }
 
-// Бүлгийн станцын сонголт («none» = хуваарилагдаагүй)
+// Бүлгийн цехийн сонголт («none» = хуваарилагдаагүй)
 const GROUP_STATION_ITEMS: Record<string, string> = {
-  none: "Станц: —",
+  none: "Цех: —",
   ...STATION_LABELS,
 }
 
-// Замын станцуудын каноник дараалал (гал тогооны урсгалын дагуу)
+// Замын цехүүдын каноник дараалал (гал тогооны урсгалын дагуу)
 const CANONICAL_STATIONS: StationCode[] = ["prep", "hot_aux", "hot", "packaging"]
 
 const STATION_SHORT: Record<StationCode, string> = {
@@ -113,7 +113,7 @@ const STATION_SHORT: Record<StationCode, string> = {
   packaging: "Са",
 }
 
-/** Мөрийн default зам: [бүлгийн станц, савлагаа]; бүлэг станцгүй бол null */
+/** Мөрийн default зам: [бүлгийн цех, савлагаа]; бүлэг цехгүй бол null */
 function derivedRoute(group: TechCardGroup): StationCode[] | null {
   if (!group.station) return null
   return group.station === "packaging"
@@ -249,8 +249,8 @@ export default function TechCardDetailPage() {
     load()
   }
 
-  // Замын chip дарахад тухайн станцыг нэмж/хасна. Үр дүн default замтай
-  // тэнцвэл NULL хадгална (бүлгийн станц солигдоход дагаж өөрчлөгдөнө)
+  // Замын chip дарахад тухайн цехыг нэмж/хасна. Үр дүн default замтай
+  // тэнцвэл NULL хадгална (бүлгийн цех солигдоход дагаж өөрчлөгдөнө)
   async function toggleItemStation(
     group: GroupRow,
     item: ItemRow,
@@ -601,7 +601,7 @@ export default function TechCardDetailPage() {
             <div className="flex items-center justify-between gap-2 border-b px-4 py-3">
               <p className="font-medium">{group.name}</p>
               <div className="flex items-center gap-2">
-                {/* Бүлгийг хийх станц — станцын дэлгэцийн хуваарилалт */}
+                {/* Бүлгийг хийх цех — цехийн дэлгэцийн хуваарилалт */}
                 <Select
                   items={GROUP_STATION_ITEMS}
                   value={group.station ?? "none"}
@@ -617,7 +617,7 @@ export default function TechCardDetailPage() {
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="none">Станц: —</SelectItem>
+                    <SelectItem value="none">Цех: —</SelectItem>
                     {(
                       Object.keys(STATION_LABELS) as StationCode[]
                     ).map((s) => (
@@ -694,7 +694,7 @@ export default function TechCardDetailPage() {
                           {waste > 0 ? `${waste.toFixed(1)}%` : "—"}
                         </TableCell>
                         <TableCell>
-                          {/* Замын chip-үүд: дарж станц нэмж/хасна.
+                          {/* Замын chip-үүд: дарж цех нэмж/хасна.
                               Бүдэг = бүлгээс уламжилсан default зам */}
                           {(() => {
                             const effective =

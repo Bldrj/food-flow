@@ -66,7 +66,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   const warehouseItems = WAREHOUSE_ITEMS.filter((item) =>
     canAccess(user.role, item.url),
   );
-  // Станцын дүртэй хэрэглэгч зөвхөн өөрийн станцаа харна
+  // Цехийн дүртэй хэрэглэгч зөвхөн өөрийн цехээ харна
   const stationItems = canAccess(user.role, "/stations")
     ? (Object.entries(STATION_LABELS) as [StationCode, string][])
         .filter(
@@ -154,10 +154,10 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
                 render={<SidebarMenuItem />}
               >
                 <CollapsibleTrigger
-                  render={<SidebarMenuButton tooltip="Станцууд" />}
+                  render={<SidebarMenuButton tooltip="Цехүүд" />}
                 >
                   <ChefHatIcon />
-                  <span>Станцууд</span>
+                  <span>Цехүүд</span>
                   <ChevronRightIcon className="ml-auto transition-transform duration-200 group-data-open/collapsible:rotate-90" />
                 </CollapsibleTrigger>
                 <CollapsibleContent>

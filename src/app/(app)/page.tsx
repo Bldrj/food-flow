@@ -244,13 +244,13 @@ export default function HomePage() {
     (b) => b.min_stock !== null && b.balance < b.min_stock,
   )
 
-  // --- Станцын явц (эхэлсэн/дууссан батчуудын хүрээнд) ---
+  // --- Цехийн явц (эхэлсэн/дууссан батчуудын хүрээнд) ---
   const activeBatchIds = new Set(
     batches.filter((b) => b.status !== "planned").map((b) => b.id),
   )
   const stationStats = (Object.keys(STATION_LABELS) as StationCode[]).map(
     (s) => {
-      // Савлагаа бүх батчид хамаатай; бусад нь замдаа энэ станцтай батчууд
+      // Савлагаа бүх батчид хамаатай; бусад нь замдаа энэ цехтэй батчууд
       const relevant =
         s === "packaging"
           ? activeBatchIds
@@ -438,7 +438,7 @@ export default function HomePage() {
           }
         />
         <StatCard
-          title="Станцууд"
+          title="Цехүүд"
           icon={<ChefHatIcon className="size-4" />}
           href="/stations"
           allowed={canAccess(user.role, "/stations")}

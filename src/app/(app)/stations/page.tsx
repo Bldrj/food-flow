@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation"
 
 import { useDevUser } from "@/components/dev-user-provider"
 
-// /stations руу орвол: станцын ажилтан өөрийн станц руу, бусад нь Бэлтгэл рүү
+// /stations руу орвол: цехийн ажилтан өөрийн цех рүү, бусад нь Бэлтгэл рүү
 export default function StationsIndexPage() {
   const router = useRouter()
   const { user } = useDevUser()

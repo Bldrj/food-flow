@@ -31,11 +31,11 @@ const BREADCRUMBS: Record<string, string[]> = {
   "/tech-cards": ["Лавлагаа", "Технологийн карт"],
   "/orders": ["Захиалга"],
   "/production": ["Үйлдвэрлэл"],
-  "/stations": ["Станц"],
-  "/stations/prep": ["Станц", "Бэлтгэл"],
-  "/stations/hot": ["Станц", "Халуун"],
-  "/stations/hot_aux": ["Станц", "Халуун туслах"],
-  "/stations/packaging": ["Станц", "Савлагаа"],
+  "/stations": ["Цех"],
+  "/stations/prep": ["Цех", "Бэлтгэл"],
+  "/stations/hot": ["Цех", "Халуун"],
+  "/stations/hot_aux": ["Цех", "Халуун туслах"],
+  "/stations/packaging": ["Цех", "Савлагаа"],
   "/warehouse": ["Агуулах", "Үлдэгдэл"],
   "/warehouse/receipts": ["Агуулах", "Бараа хүлээн авах"],
   "/warehouse/issues": ["Агуулах", "Материал олгох"],
@@ -70,7 +70,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const allowed = canAccess(user.role, pathname);
 
   return (
-    // Станцын (таблет) хэрэглэгчид sidebar хумигдсан эхэлнэ — дэлгэцэд зай
+    // Цехийн (таблет) хэрэглэгчид sidebar хумигдсан эхэлнэ — дэлгэцэд зай
     // гаргана; бусад дүрд нээлттэй. key нь дүр солиход дахин тохируулна
     <SidebarProvider
       key={user.role}

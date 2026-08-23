@@ -221,7 +221,7 @@ export default function TechCardsPage() {
                     {row.groups.length}
                     {row.groups.some((g) => g.station === null) && (
                       <Badge variant="outline" className="ml-2 border-amber-500/50 text-amber-600">
-                        Станц дутуу
+                        Цех дутуу
                       </Badge>
                     )}
                   </TableCell>

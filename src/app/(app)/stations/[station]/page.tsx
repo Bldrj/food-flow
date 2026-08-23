@@ -84,7 +84,7 @@ export default function StationPage() {
 
   const station = params.station as StationCode
   const isValid = station in STATION_LABELS
-  // Станцын ажилтан зөвхөн өөрийн станцаа харна
+  // Цехийн ажилтан зөвхөн өөрийн цехээ харна
   const isOwnDenied = user.role === "station" && user.station !== station
 
   const [date, setDate] = React.useState(today())
@@ -107,7 +107,7 @@ export default function StationPage() {
       return
     }
     setLoading(true)
-    // station_work-ийг бүх станцаар нь авна: савлагаанд материал бүрийн
+    // station_work-ийг бүх цехээр нь авна: савлагаанд материал бүрийн
     // өмнөх цехийг (замыг) мэдэх шаардлагатай
     const [batchRes, workRes] = await Promise.all([
       supabase
@@ -127,7 +127,7 @@ export default function StationPage() {
     setBatches(batchRows)
     setWork((workRes.data ?? []) as StationWorkRow[])
 
-    // ТК бүрийн бүх бүлгийн нэр (зааврын хэсэг аль станцынх вэ гэдгийг ялгана)
+    // ТК бүрийн бүх бүлгийн нэр (зааврын хэсэг аль цехийнх вэ гэдгийг ялгана)
     if (batchRows.length > 0) {
       const tkIds = [...new Set(batchRows.map((b) => b.tech_card_id))]
       const { data: tkGroups } = await supabase
@@ -148,7 +148,7 @@ export default function StationPage() {
       setTkGroupNames(new Map())
     }
 
-    // Гүйцэтгэлийн тэмдэглэгээ — бүх станцынхыг авна (савлагаанд өмнөх цех
+    // Гүйцэтгэлийн тэмдэглэгээ — бүх цехийнхыг авна (савлагаанд өмнөх цех
     // дууссан эсэхийг харуулахад хэрэгтэй)
     if (batchRows.length > 0) {
       const { data: prog } = await supabase
@@ -170,13 +170,13 @@ export default function StationPage() {
     load()
   }, [load])
 
-  // Өөрийн станцын «Дууслаа» тэмдэглэгээ (толгойн төлөв)
+  // Өөрийн цехийн «Дууслаа» тэмдэглэгээ (толгойн төлөв)
   const progressByBatch = new Map(
     progress.filter((p) => p.station === station).map((p) => [p.batch_id, p]),
   )
-  // Аль батч аль станцад дууссаныг түргэн шалгах олонлог
+  // Аль батч аль цехэд дууссаныг түргэн шалгах олонлог
   const doneSet = new Set(progress.map((p) => `${p.batch_id}|${p.station}`))
-  // Өөрийн станцын ажлын мөрүүд
+  // Өөрийн цехийн ажлын мөрүүд
   const ownWork = work.filter((w) => w.station === station)
   const workByBatch = new Map<string, StationWorkRow[]>()
   for (const w of ownWork) {
@@ -184,7 +184,7 @@ export default function StationPage() {
     list.push(w)
     workByBatch.set(w.batch_id, list)
   }
-  // Мөр бүрийн зам (бүх станцын мөрүүдээс) — савлагааны өмнөх цехийг олоход
+  // Мөр бүрийн зам (бүх цехийн мөрүүдээс) — савлагааны өмнөх цехийг олоход
   const routeByItem = new Map<string, Set<StationCode>>()
   for (const w of work) {
     const set = routeByItem.get(itemKey(w)) ?? new Set<StationCode>()
@@ -202,7 +202,7 @@ export default function StationPage() {
       ? workStations[workStations.length - 1]
       : null
   }
-  // Энэ станцад ажилтай батчууд (савлагаа: бүх батч)
+  // Энэ цехэд ажилтай батчууд (савлагаа: бүх батч)
   const relevantBatches = batches
     .filter((b) => isPackaging || workByBatch.has(b.id))
     .sort(
@@ -244,7 +244,7 @@ export default function StationPage() {
   if (!isValid) {
     return (
       <div className="rounded-lg border border-destructive/50 bg-destructive/10 p-4 text-sm">
-        <p className="font-medium">Ийм станц байхгүй</p>
+        <p className="font-medium">Ийм цех байхгүй</p>
       </div>
     )
   }
@@ -255,7 +255,7 @@ export default function StationPage() {
         <div className="max-w-md rounded-lg border p-6 text-center">
           <p className="text-lg font-medium">Хандах эрхгүй</p>
           <p className="text-muted-foreground mt-2 text-sm">
-            Та зөвхөн өөрийн станцын дэлгэцийг харна
+            Та зөвхөн өөрийн цехийн дэлгэцийг харна
             {user.station
               ? ` (${STATION_LABELS[user.station as StationCode]})`
               : ""}
@@ -271,12 +271,12 @@ export default function StationPage() {
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">
-            {STATION_LABELS[station]} станц
+            {STATION_LABELS[station]} цех
           </h1>
           <p className="text-sm text-muted-foreground">
             {isPackaging
               ? "Батч бүрийн савлах порц + материалууд бүлэг тус бүрээр (цехээс хүлээгдэж буй / ✓ хүлээн авсан)"
-              : "Үйлдвэрлэлд орсон батчуудын энэ станцад хийгдэх ажил"}
+              : "Үйлдвэрлэлд орсон батчуудын энэ цехэд хийгдэх ажил"}
           </p>
         </div>
         <Input
@@ -293,7 +293,7 @@ export default function StationPage() {
         <Skeleton className="h-64 w-full" />
       ) : relevantBatches.length === 0 ? (
         <div className="rounded-lg border p-8 text-center text-muted-foreground">
-          Энэ өдөрт {STATION_LABELS[station]} станцад ажил алга — батч
+          Энэ өдөрт {STATION_LABELS[station]} цехэд ажил алга — батч
           «Үйлдвэрлэлд» орсны дараа энд харагдана
         </div>
       ) : (
@@ -454,7 +454,7 @@ export default function StationPage() {
                 </div>
               )}
 
-              {/* Технологийн дараалал: энэ станцын бүлгүүдэд хамаарах болон
+              {/* Технологийн дараалал: энэ цехийн бүлгүүдэд хамаарах болон
                   ерөнхий (аль ч бүлэгт хамааргүй) зааврын хэсгүүд */}
               {(() => {
                 const allNames =
