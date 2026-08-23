@@ -1,10 +1,12 @@
 "use client"
 
 import * as React from "react"
+import Link from "next/link"
 import { useParams } from "next/navigation"
 
 import { createClient } from "@/lib/supabase/client"
 import { useDevUser } from "@/components/dev-user-provider"
+import { today } from "@/lib/dev-date"
 import {
   BASE_UNIT_LABELS,
   STATION_LABELS,
@@ -18,7 +20,7 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Skeleton } from "@/components/ui/skeleton"
-import { CheckIcon, Undo2Icon } from "lucide-react"
+import { CheckIcon, ClipboardCheckIcon, Undo2Icon } from "lucide-react"
 
 type BatchRow = ProductionBatch & {
   product: { name: string; code: string } | null
@@ -52,9 +54,6 @@ const CANONICAL: StationCode[] = ["prep", "hot_aux", "hot", "packaging"]
 const itemKey = (r: StationWorkRow) =>
   `${r.batch_id}|${r.group_id}|${r.material_id}`
 
-function today(): string {
-  return new Date().toISOString().slice(0, 10)
-}
 
 function formatQty(n: number): string {
   return Number(n.toFixed(6)).toLocaleString("en-US", {
@@ -279,12 +278,21 @@ export default function StationPage() {
               : "Үйлдвэрлэлд орсон батчуудын энэ цехэд хийгдэх ажил"}
           </p>
         </div>
-        <Input
-          type="date"
-          className="w-40"
-          value={date}
-          onChange={(e) => setDate(e.target.value)}
-        />
+        <div className="flex items-center gap-2">
+          <Input
+            type="date"
+            className="w-40"
+            value={date}
+            onChange={(e) => setDate(e.target.value)}
+          />
+          <Button
+            variant="outline"
+            render={<Link href={`/stations/${station}/counts`} />}
+          >
+            <ClipboardCheckIcon />
+            Өдрийн тооллого
+          </Button>
+        </div>
       </div>
 
       {error && <p className="text-sm text-destructive">{error}</p>}
@@ -495,6 +503,7 @@ export default function StationPage() {
           )
         })
       )}
+
     </div>
   )
 }

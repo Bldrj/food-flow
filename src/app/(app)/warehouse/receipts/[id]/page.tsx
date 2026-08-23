@@ -6,6 +6,7 @@ import { useParams, useRouter } from "next/navigation"
 
 import { createClient } from "@/lib/supabase/client"
 import { useDevUser } from "@/components/dev-user-provider"
+import { formatUnitQty } from "@/lib/format-qty"
 import { MaterialPicker } from "@/components/material-picker"
 import {
   BASE_UNIT_LABELS,
@@ -411,10 +412,9 @@ export default function ReceiptDetailPage() {
                   </TableCell>
                   <TableCell>× {formatQty(item.conversion_rate)}</TableCell>
                   <TableCell className="font-medium">
-                    {formatQty(item.base_quantity)}{" "}
                     {item.material
-                      ? BASE_UNIT_LABELS[item.material.base_unit]
-                      : ""}
+                      ? formatUnitQty(item.base_quantity, item.material.base_unit)
+                      : formatQty(item.base_quantity)}
                   </TableCell>
                   <TableCell>{formatPrice(item.unit_price)}</TableCell>
                   <TableCell>{item.lot_no ?? "—"}</TableCell>
@@ -537,7 +537,7 @@ export default function ReceiptDetailPage() {
                 {unitIncompatible && selectedMaterial
                   ? `"${itemForm.input_unit.trim()}" нэгж нь ${BASE_UNIT_LABELS[selectedMaterial.base_unit]}-ээр хөтлөгддөг материалд тохирохгүй`
                   : previewBase !== null && selectedMaterial
-                    ? `Агуулахад: ${formatQty(previewBase)} ${BASE_UNIT_LABELS[selectedMaterial.base_unit]}`
+                    ? `Агуулахад: ${formatUnitQty(previewBase, selectedMaterial.base_unit)}`
                     : "1 нэгж = хэдэн үндсэн нэгж болохыг хөрвүүлэлтэд бичнэ (box→12, g→0.001)"}
               </p>
               <Button

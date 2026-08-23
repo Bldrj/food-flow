@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation"
 
 import { createClient } from "@/lib/supabase/client"
 import { useDevUser } from "@/components/dev-user-provider"
+import { today } from "@/lib/dev-date"
 import { RECEIPT_STATUS_LABELS, type StockIssue } from "@/lib/types"
 
 import { Badge } from "@/components/ui/badge"
@@ -47,9 +48,6 @@ type HeaderForm = {
   note: string
 }
 
-function today(): string {
-  return new Date().toISOString().slice(0, 10)
-}
 
 export default function StockIssuesPage() {
   const supabase = React.useMemo(() => createClient(), [])

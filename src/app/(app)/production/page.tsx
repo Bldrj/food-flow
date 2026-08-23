@@ -6,6 +6,8 @@ import { useRouter } from "next/navigation"
 
 import { createClient } from "@/lib/supabase/client"
 import { useDevUser } from "@/components/dev-user-provider"
+import { today } from "@/lib/dev-date"
+import { formatUnitQty } from "@/lib/format-qty"
 import {
   BASE_UNIT_LABELS,
   BATCH_STATUS_LABELS,
@@ -47,7 +49,11 @@ type OrderTotal = {
   order_count: number
 }
 
-type NeedRow = DailyMaterialNeed & { balance: number; issued: number }
+type NeedRow = DailyMaterialNeed & {
+  balance: number
+  issued: number
+  carryover: number // цехүүдийн сүүлчийн тоолсон өдрийн үлдэгдэл Σ
+}
 
 const STATUS_BADGE: Record<BatchStatus, "default" | "outline" | "secondary"> = {
   planned: "outline",
@@ -55,9 +61,6 @@ const STATUS_BADGE: Record<BatchStatus, "default" | "outline" | "secondary"> = {
   done: "secondary",
 }
 
-function today(): string {
-  return new Date().toISOString().slice(0, 10)
-}
 
 function formatQty(n: number): string {
   return Number(n.toFixed(6)).toLocaleString("en-US", {
@@ -90,7 +93,8 @@ export default function ProductionPage() {
 
   const load = React.useCallback(async () => {
     setLoading(true)
-    const [batchRes, totalsRes, needsRes, issuedRes] = await Promise.all([
+    const [batchRes, totalsRes, needsRes, issuedRes, leftoverRes] =
+      await Promise.all([
       supabase
         .from("production_batches")
         .select(
@@ -111,6 +115,15 @@ export default function ProductionPage() {
         .from("daily_issued_totals")
         .select("material_id, issued_qty")
         .eq("production_date", date),
+      // Цехүүдийн үлдэгдэл: сонгосон өдрөөс ӨМНӨХ сүүлчийн тоолсон өдрийнх
+      // (ихэвчлэн өчигдөр; амралтын дараа сүүлийн ажлын өдөр)
+      supabase
+        .from("station_stock_counts")
+        .select("date, material_id, qty")
+        .eq("type", "leftover")
+        .lt("date", date)
+        .order("date", { ascending: false })
+        .limit(1000),
     ])
     setBatches((batchRes.data ?? []) as BatchRow[])
     setOrderTotals((totalsRes.data ?? []) as OrderTotal[])
@@ -124,6 +137,21 @@ export default function ProductionPage() {
         Number(r.issued_qty),
       ]),
     )
+    // Сүүлчийн тоолсон өдрийн үлдэгдлүүдийг материалаар нийлбэрлэнэ
+    const leftoverRows = (leftoverRes.data ?? []) as {
+      date: string
+      material_id: string
+      qty: number
+    }[]
+    const lastCountDate = leftoverRows[0]?.date
+    const carryoverById = new Map<string, number>()
+    for (const r of leftoverRows) {
+      if (r.date !== lastCountDate) break
+      carryoverById.set(
+        r.material_id,
+        (carryoverById.get(r.material_id) ?? 0) + Number(r.qty),
+      )
+    }
     if (needRows.length > 0) {
       const ids = needRows.map((n) => n.material_id)
       const { data: balances } = await supabase
@@ -138,6 +166,7 @@ export default function ProductionPage() {
           ...n,
           balance: Number(byId.get(n.material_id) ?? 0),
           issued: issuedById.get(n.material_id) ?? 0,
+          carryover: carryoverById.get(n.material_id) ?? 0,
         })),
       )
     } else {
@@ -237,9 +266,10 @@ export default function ProductionPage() {
       a.batch_seq - b.batch_seq,
   )
 
-  // Дутуу олголт = хэрэгцээ − олгосон (0-ээс доош орохгүй); нэмэлт захиалгаар
-  // хэрэгцээ өссөн бол зөрүү нь энд гарч ирнэ
-  const remaining = (n: NeedRow) => Math.max(n.brutto_need - n.issued, 0)
+  // Олгох шаардлагатай = хэрэгцээ − цехийн үлдэгдэл − олгосон (0-ээс доош
+  // орохгүй); нэмэлт захиалгаар хэрэгцээ өссөн бол зөрүү нь энд гарч ирнэ
+  const remaining = (n: NeedRow) =>
+    Math.max(n.brutto_need - n.carryover - n.issued, 0)
   const toIssue = needs.filter((n) => remaining(n) > 0)
   const shortage = needs.filter((n) => n.balance < remaining(n))
 
@@ -513,19 +543,21 @@ export default function ProductionPage() {
                   <TableHeader>
                     <TableRow>
                       <TableHead>Материал</TableHead>
-                      <TableHead className="w-32">
+                      <TableHead className="w-28">
                         Хэрэгцээ (бохир)
                       </TableHead>
-                      <TableHead className="w-32">Олгосон</TableHead>
-                      <TableHead className="w-32">Дутуу олголт</TableHead>
-                      <TableHead className="w-32">Үлдэгдэл</TableHead>
+                      <TableHead className="w-28">Цехийн үлдэгдэл</TableHead>
+                      <TableHead className="w-28">Олгосон</TableHead>
+                      <TableHead className="w-32">
+                        Олгох шаардлагатай
+                      </TableHead>
+                      <TableHead className="w-32">Агуулахад</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {needs.map((n) => {
                       const rem = remaining(n)
                       const short = n.balance < rem
-                      const unit = BASE_UNIT_LABELS[n.base_unit]
                       return (
                         <TableRow key={n.material_id}>
                           <TableCell className="font-medium">
@@ -535,14 +567,21 @@ export default function ProductionPage() {
                             </span>
                           </TableCell>
                           <TableCell>
-                            {formatQty(n.brutto_need)} {unit}
+                            {formatUnitQty(n.brutto_need, n.base_unit)}
+                          </TableCell>
+                          <TableCell
+                            className={
+                              n.carryover > 0 ? "" : "text-muted-foreground"
+                            }
+                          >
+                            {formatUnitQty(n.carryover, n.base_unit)}
                           </TableCell>
                           <TableCell
                             className={
                               n.issued > 0 ? "" : "text-muted-foreground"
                             }
                           >
-                            {formatQty(n.issued)} {unit}
+                            {formatUnitQty(n.issued, n.base_unit)}
                           </TableCell>
                           <TableCell
                             className={
@@ -551,7 +590,7 @@ export default function ProductionPage() {
                                 : "text-muted-foreground"
                             }
                           >
-                            {formatQty(rem)} {unit}
+                            {formatUnitQty(rem, n.base_unit)}
                           </TableCell>
                           <TableCell
                             className={
@@ -563,7 +602,7 @@ export default function ProductionPage() {
                             {(short || n.balance < 0) && (
                               <TriangleAlertIcon className="mr-1 inline size-3.5" />
                             )}
-                            {formatQty(n.balance)} {unit}
+                            {formatUnitQty(n.balance, n.base_unit)}
                           </TableCell>
                         </TableRow>
                       )
@@ -572,11 +611,11 @@ export default function ProductionPage() {
                 </Table>
               </div>
               <p className="text-xs text-muted-foreground">
-                Хэрэгцээ = батчийн порц × ТК-ийн бохир хэмжээ; Олгосон =
-                батлагдсан зарлагын Σ (хоёул DB талд бодогдоно). «Материал
-                олгох» нь дутуу олголтын хэмжээгээр зарлагын ноорог үүсгэнэ —
-                нярав бодит тоогоо засаад батлахад үлдэгдлээс хасагдана.
-                Улаан = үлдэгдэл дутуу олголтод хүрэлцэхгүй.
+                Олгох шаардлагатай = хэрэгцээ − цехийн үлдэгдэл (сүүлчийн
+                тоолсон өдрийн) − олгосон. «Материал олгох» энэ хэмжээгээр
+                зарлагын ноорог үүсгэнэ — нярав бодит тоогоо засаад батлахад
+                агуулахын үлдэгдлээс хасагдана. Улаан = агуулахын үлдэгдэл
+                хүрэлцэхгүй.
               </p>
             </>
           )}

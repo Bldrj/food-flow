@@ -6,6 +6,7 @@ import { useParams, useRouter } from "next/navigation"
 
 import { createClient } from "@/lib/supabase/client"
 import { useDevUser } from "@/components/dev-user-provider"
+import { formatUnitQty } from "@/lib/format-qty"
 import { MaterialPicker } from "@/components/material-picker"
 import {
   BASE_UNIT_LABELS,
@@ -363,7 +364,7 @@ export default function StockIssueDetailPage() {
                   const unit = i.material
                     ? BASE_UNIT_LABELS[i.material.base_unit]
                     : ""
-                  return `${i.material?.name}: ${formatQty(bal)} → ${formatQty(bal - i.qty)} ${unit}`
+                  return `${i.material?.name}: ${i.material ? formatUnitQty(bal, i.material.base_unit) : formatQty(bal)} → ${i.material ? formatUnitQty(bal - i.qty, i.material.base_unit) : formatQty(bal - i.qty)}`
                 })
                 .join(" · ")}
             </p>
@@ -439,12 +440,16 @@ export default function StockIssueDetailPage() {
                         </div>
                       ) : (
                         <span className="font-medium">
-                          {formatQty(item.qty)} {unit}
+                          {item.material
+                            ? formatUnitQty(item.qty, item.material.base_unit)
+                            : formatQty(item.qty)}
                         </span>
                       )}
                     </TableCell>
                     <TableCell>
-                      {formatQty(bal)} {unit}
+                      {item.material
+                        ? formatUnitQty(bal, item.material.base_unit)
+                        : formatQty(bal)}
                     </TableCell>
                     {isDraft && (
                       <TableCell
@@ -457,7 +462,9 @@ export default function StockIssueDetailPage() {
                         {after < 0 && (
                           <TriangleAlertIcon className="mr-1 inline size-3.5" />
                         )}
-                        {formatQty(after)} {unit}
+                        {item.material
+                          ? formatUnitQty(after, item.material.base_unit)
+                          : formatQty(after)}
                       </TableCell>
                     )}
                     <TableCell className="text-muted-foreground">
@@ -497,8 +504,10 @@ export default function StockIssueDetailPage() {
               {selectedMaterial && (
                 <p className="text-xs text-muted-foreground">
                   Үлдэгдэл:{" "}
-                  {formatQty(balances.get(selectedMaterial.id) ?? 0)}{" "}
-                  {BASE_UNIT_LABELS[selectedMaterial.base_unit]}
+                  {formatUnitQty(
+                    balances.get(selectedMaterial.id) ?? 0,
+                    selectedMaterial.base_unit,
+                  )}
                 </p>
               )}
             </div>

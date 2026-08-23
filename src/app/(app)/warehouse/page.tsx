@@ -5,6 +5,7 @@ import Link from "next/link"
 
 import { createClient } from "@/lib/supabase/client"
 import { useDevUser } from "@/components/dev-user-provider"
+import { formatUnitQty } from "@/lib/format-qty"
 import {
   BASE_UNIT_LABELS,
   MOVEMENT_TYPE_LABELS,
@@ -356,7 +357,7 @@ export default function WarehousePage() {
                         : "text-right font-medium"
                     }
                   >
-                    {formatQty(row.balance)} {BASE_UNIT_LABELS[row.base_unit]}
+                    {formatUnitQty(row.balance, row.base_unit)}
                     {belowMin(row) && (
                       <TriangleAlertIcon className="ml-1 inline size-3.5 align-[-2px]" />
                     )}
@@ -364,7 +365,7 @@ export default function WarehousePage() {
                   <TableCell className="text-right text-muted-foreground">
                     {row.min_stock === null
                       ? "—"
-                      : `${formatQty(row.min_stock)} ${BASE_UNIT_LABELS[row.base_unit]}`}
+                      : formatUnitQty(row.min_stock, row.base_unit)}
                   </TableCell>
                 </TableRow>
               ))
@@ -399,11 +400,10 @@ export default function WarehousePage() {
                         : "font-medium text-foreground"
                     }
                   >
-                    {formatQty(detail.balance)}{" "}
-                    {BASE_UNIT_LABELS[detail.base_unit]}
+                    {formatUnitQty(detail.balance, detail.base_unit)}
                   </span>
                   {detail.min_stock !== null &&
-                    ` · доод хэмжээ ${formatQty(detail.min_stock)} ${BASE_UNIT_LABELS[detail.base_unit]}`}
+                    ` · доод хэмжээ ${formatUnitQty(detail.min_stock, detail.base_unit)}`}
                 </DialogDescription>
               </DialogHeader>
 
@@ -463,8 +463,7 @@ export default function WarehousePage() {
                               }
                             >
                               {qty > 0 ? "+" : ""}
-                              {formatQty(qty)}{" "}
-                              {BASE_UNIT_LABELS[detail.base_unit]}
+                              {formatUnitQty(qty, detail.base_unit)}
                             </TableCell>
                             <TableCell>
                               {m.goods_receipt_id && m.goods_receipt ? (

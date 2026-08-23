@@ -4,6 +4,7 @@ import * as React from "react"
 import Link from "next/link"
 
 import { createClient } from "@/lib/supabase/client"
+import { formatUnitQty } from "@/lib/format-qty"
 import {
   BASE_UNIT_LABELS,
   CANONICAL_UNITS,
@@ -459,7 +460,7 @@ export default function MaterialsPage() {
                   <TableCell>
                     {row.min_stock === null
                       ? "—"
-                      : `${row.min_stock} ${BASE_UNIT_LABELS[row.base_unit]}`}
+                      : formatUnitQty(row.min_stock, row.base_unit)}
                   </TableCell>
                   <TableCell>
                     <DropdownMenu>

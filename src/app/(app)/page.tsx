@@ -6,6 +6,7 @@ import Link from "next/link"
 import { createClient } from "@/lib/supabase/client"
 import { useDevUser } from "@/components/dev-user-provider"
 import { canAccess } from "@/lib/permissions"
+import { today } from "@/lib/dev-date"
 import {
   STATION_LABELS,
   type BatchStatus,
@@ -56,9 +57,6 @@ type BalanceRow = {
   is_active: boolean
 }
 
-function today(): string {
-  return new Date().toISOString().slice(0, 10)
-}
 
 // Нэг үзүүлэлтийн карт: том тоо + тайлбар мөр; эрхтэй бол холбоос болно
 function StatCard({

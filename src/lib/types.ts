@@ -328,6 +328,28 @@ export type BatchStationProgress = {
   done_by: string | null
 }
 
+// Цехийн өдрийн тооллого (migration 0017): үлдэгдэл маргаашийн олголтын
+// тооцоонд орно, хаягдал зөвхөн тайланд. Ledger-т нөлөөгүй.
+export type StationCountType = "leftover" | "waste"
+
+export const STATION_COUNT_LABELS: Record<StationCountType, string> = {
+  leftover: "Үлдэгдэл",
+  waste: "Хаягдал",
+}
+
+export type StationStockCount = {
+  id: string
+  date: string
+  station: StationCode
+  material_id: string
+  qty: number // base_unit-ээр
+  type: StationCountType
+  note: string | null
+  created_by: string | null
+  created_at: string
+  updated_at: string
+}
+
 // station_work view-ийн мөр (migration 0016): батч × ТК-ийн мөр × замын цех,
 // qty = бохир × батчийн порц (DB талд бодогдсон)
 export type StationWorkRow = {
