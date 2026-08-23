@@ -8,8 +8,10 @@ import { createClient } from "@/lib/supabase/client"
 import { MaterialPicker } from "@/components/material-picker"
 import {
   BASE_UNIT_LABELS,
+  STATION_LABELS,
   type CanonicalUnit,
   type Material,
+  type StationCode,
   type TechCard,
   type TechCardGroup,
   type TechCardItem,
@@ -93,6 +95,30 @@ const EMPTY_ITEM_FORM: ItemForm = {
   unit: "",
   brutto: "",
   netto: "",
+}
+
+// Бүлгийн станцын сонголт («none» = хуваарилагдаагүй)
+const GROUP_STATION_ITEMS: Record<string, string> = {
+  none: "Станц: —",
+  ...STATION_LABELS,
+}
+
+// Замын станцуудын каноник дараалал (гал тогооны урсгалын дагуу)
+const CANONICAL_STATIONS: StationCode[] = ["prep", "hot_aux", "hot", "packaging"]
+
+const STATION_SHORT: Record<StationCode, string> = {
+  prep: "Бэ",
+  hot_aux: "ХТ",
+  hot: "Ха",
+  packaging: "Са",
+}
+
+/** Мөрийн default зам: [бүлгийн станц, савлагаа]; бүлэг станцгүй бол null */
+function derivedRoute(group: TechCardGroup): StationCode[] | null {
+  if (!group.station) return null
+  return group.station === "packaging"
+    ? ["packaging"]
+    : [group.station, "packaging"]
 }
 
 export default function TechCardDetailPage() {
@@ -208,6 +234,44 @@ export default function TechCardDetailPage() {
       return
     }
     setNewGroupName("")
+    load()
+  }
+
+  async function setGroupStation(group: GroupRow, value: string) {
+    const { error } = await supabase
+      .from("tech_card_groups")
+      .update({ station: value === "none" ? null : value })
+      .eq("id", group.id)
+    if (error) {
+      setActionError(error.message)
+      return
+    }
+    load()
+  }
+
+  // Замын chip дарахад тухайн станцыг нэмж/хасна. Үр дүн default замтай
+  // тэнцвэл NULL хадгална (бүлгийн станц солигдоход дагаж өөрчлөгдөнө)
+  async function toggleItemStation(
+    group: GroupRow,
+    item: ItemRow,
+    station: StationCode,
+  ) {
+    const effective = item.stations ?? derivedRoute(group) ?? []
+    const next = effective.includes(station)
+      ? effective.filter((s) => s !== station)
+      : [...effective, station]
+    const sorted = CANONICAL_STATIONS.filter((s) => next.includes(s))
+    const def = derivedRoute(group)
+    const value =
+      def !== null && sorted.join(",") === def.join(",") ? null : sorted
+    const { error } = await supabase
+      .from("tech_card_items")
+      .update({ stations: value })
+      .eq("id", item.id)
+    if (error) {
+      setActionError(error.message)
+      return
+    }
     load()
   }
 
@@ -332,6 +396,7 @@ export default function TechCardDetailPage() {
           .insert({
             tech_card_id: newCard.id,
             name: g.name,
+            station: g.station,
             sort_order: g.sort_order,
           })
           .select("id")
@@ -346,6 +411,7 @@ export default function TechCardDetailPage() {
                 material_id: i.material_id,
                 brutto_qty: i.brutto_qty,
                 netto_qty: i.netto_qty,
+                stations: i.stations,
                 sort_order: i.sort_order,
               })),
             )
@@ -532,16 +598,44 @@ export default function TechCardDetailPage() {
         const units = mat ? INPUT_UNITS[mat.base_unit] : []
         return (
           <div key={group.id} className="rounded-lg border">
-            <div className="flex items-center justify-between border-b px-4 py-3">
+            <div className="flex items-center justify-between gap-2 border-b px-4 py-3">
               <p className="font-medium">{group.name}</p>
-              <Button
-                variant="ghost"
-                size="icon-sm"
-                onClick={() => removeGroup(group)}
-              >
-                <Trash2Icon />
-                <span className="sr-only">Бүлэг устгах</span>
-              </Button>
+              <div className="flex items-center gap-2">
+                {/* Бүлгийг хийх станц — станцын дэлгэцийн хуваарилалт */}
+                <Select
+                  items={GROUP_STATION_ITEMS}
+                  value={group.station ?? "none"}
+                  onValueChange={(v) => setGroupStation(group, v as string)}
+                >
+                  <SelectTrigger
+                    className={
+                      group.station
+                        ? "h-8 w-40"
+                        : "h-8 w-40 border-amber-500/50 text-amber-600"
+                    }
+                  >
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">Станц: —</SelectItem>
+                    {(
+                      Object.keys(STATION_LABELS) as StationCode[]
+                    ).map((s) => (
+                      <SelectItem key={s} value={s}>
+                        {STATION_LABELS[s]}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  onClick={() => removeGroup(group)}
+                >
+                  <Trash2Icon />
+                  <span className="sr-only">Бүлэг устгах</span>
+                </Button>
+              </div>
             </div>
             <Table>
               <TableHeader>
@@ -549,7 +643,8 @@ export default function TechCardDetailPage() {
                   <TableHead>Материал</TableHead>
                   <TableHead className="w-32">Бохир (агуулахаас)</TableHead>
                   <TableHead className="w-32">Цэвэр (хоолонд)</TableHead>
-                  <TableHead className="w-28">Хаягдал</TableHead>
+                  <TableHead className="w-24">Хаягдал</TableHead>
+                  <TableHead className="w-44">Дамжлага</TableHead>
                   <TableHead className="w-10" />
                 </TableRow>
               </TableHeader>
@@ -557,7 +652,7 @@ export default function TechCardDetailPage() {
                 {group.items.length === 0 ? (
                   <TableRow>
                     <TableCell
-                      colSpan={5}
+                      colSpan={6}
                       className="h-12 text-center text-muted-foreground"
                     >
                       Орц нэмээгүй байна
@@ -597,6 +692,41 @@ export default function TechCardDetailPage() {
                         </TableCell>
                         <TableCell className="text-muted-foreground">
                           {waste > 0 ? `${waste.toFixed(1)}%` : "—"}
+                        </TableCell>
+                        <TableCell>
+                          {/* Замын chip-үүд: дарж станц нэмж/хасна.
+                              Бүдэг = бүлгээс уламжилсан default зам */}
+                          {(() => {
+                            const effective =
+                              item.stations ?? derivedRoute(group) ?? []
+                            const isDerived = item.stations === null
+                            return (
+                              <div className="flex gap-1">
+                                {CANONICAL_STATIONS.map((s) => {
+                                  const on = effective.includes(s)
+                                  return (
+                                    <button
+                                      key={s}
+                                      type="button"
+                                      title={STATION_LABELS[s]}
+                                      onClick={() =>
+                                        toggleItemStation(group, item, s)
+                                      }
+                                      className={
+                                        on
+                                          ? isDerived
+                                            ? "rounded-md border border-transparent bg-secondary px-1.5 py-0.5 text-xs text-secondary-foreground/60"
+                                            : "rounded-md border border-transparent bg-secondary px-1.5 py-0.5 text-xs font-medium text-secondary-foreground"
+                                          : "rounded-md border border-dashed border-input px-1.5 py-0.5 text-xs text-muted-foreground/50 hover:text-muted-foreground"
+                                      }
+                                    >
+                                      {STATION_SHORT[s]}
+                                    </button>
+                                  )
+                                })}
+                              </div>
+                            )
+                          })()}
                         </TableCell>
                         <TableCell>
                           <Button

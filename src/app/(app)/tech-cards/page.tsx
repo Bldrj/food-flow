@@ -39,7 +39,7 @@ import { PlusIcon, SearchIcon } from "lucide-react"
 
 type CardRow = TechCard & {
   product: { code: string; name: string } | null
-  groups: { count: number }[]
+  groups: { station: string | null }[]
 }
 
 export default function TechCardsPage() {
@@ -65,7 +65,7 @@ export default function TechCardsPage() {
     const [cardsRes, productsRes] = await Promise.all([
       supabase
         .from("tech_cards")
-        .select("*, product:products(code, name), groups:tech_card_groups(count)")
+        .select("*, product:products(code, name), groups:tech_card_groups(station)")
         .order("created_at", { ascending: false }),
       supabase
         .from("products")
@@ -217,7 +217,14 @@ export default function TechCardsPage() {
                       ? "—"
                       : `${row.portion_yield_g} гр`}
                   </TableCell>
-                  <TableCell>{row.groups[0]?.count ?? 0}</TableCell>
+                  <TableCell>
+                    {row.groups.length}
+                    {row.groups.some((g) => g.station === null) && (
+                      <Badge variant="outline" className="ml-2 border-amber-500/50 text-amber-600">
+                        Станц дутуу
+                      </Badge>
+                    )}
+                  </TableCell>
                   <TableCell>
                     <Badge variant={row.is_active ? "default" : "outline"}>
                       {row.is_active ? "Идэвхтэй" : "Хуучин"}

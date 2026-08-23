@@ -31,6 +31,11 @@ const BREADCRUMBS: Record<string, string[]> = {
   "/tech-cards": ["Лавлагаа", "Технологийн карт"],
   "/orders": ["Захиалга"],
   "/production": ["Үйлдвэрлэл"],
+  "/stations": ["Станц"],
+  "/stations/prep": ["Станц", "Бэлтгэл"],
+  "/stations/hot": ["Станц", "Халуун"],
+  "/stations/hot_aux": ["Станц", "Халуун туслах"],
+  "/stations/packaging": ["Станц", "Савлагаа"],
   "/warehouse": ["Агуулах", "Үлдэгдэл"],
   "/warehouse/receipts": ["Агуулах", "Бараа хүлээн авах"],
   "/warehouse/issues": ["Агуулах", "Материал олгох"],
@@ -65,7 +70,12 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const allowed = canAccess(user.role, pathname);
 
   return (
-    <SidebarProvider>
+    // Станцын (таблет) хэрэглэгчид sidebar хумигдсан эхэлнэ — дэлгэцэд зай
+    // гаргана; бусад дүрд нээлттэй. key нь дүр солиход дахин тохируулна
+    <SidebarProvider
+      key={user.role}
+      defaultOpen={user.role !== "station"}
+    >
       <AppSidebar />
       <SidebarInset>
         <header className="flex h-16 shrink-0 items-center gap-2 transition-[width,height] ease-linear group-has-data-[collapsible=icon]/sidebar-wrapper:h-12">

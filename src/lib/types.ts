@@ -286,10 +286,22 @@ export type TechCard = {
   updated_at: string
 }
 
+// Станцууд (migration 0014). Савлагаа руу бүх хоол дамждаг тул ТК-д
+// тэмдэглэдэггүй — савлагааны дэлгэц батчийн порцын тоогоор ажиллана
+export type StationCode = "prep" | "hot" | "hot_aux" | "packaging"
+
+export const STATION_LABELS: Record<StationCode, string> = {
+  prep: "Бэлтгэл",
+  hot: "Халуун",
+  hot_aux: "Халуун туслах",
+  packaging: "Савлагаа",
+}
+
 export type TechCardGroup = {
   id: string
   tech_card_id: string
   name: string // «Үндсэн орц», «Соус» гэх мэт
+  station: StationCode | null // бүлгийг хийх станц; NULL = хуваарилагдаагүй
   sort_order: number
   created_at: string
 }
@@ -300,8 +312,42 @@ export type TechCardItem = {
   material_id: string
   brutto_qty: number // агуулахаас авах, base_unit-ээр
   netto_qty: number // үйлдвэрлэлд орох, base_unit-ээр (≤ brutto)
+  // Дамжлагын зам (дараалалтай, migration 0015).
+  // NULL = default зам [бүлгийн станц, савлагаа]
+  stations: StationCode[] | null
   sort_order: number
   created_at: string
+}
+
+// Станцын гүйцэтгэлийн тэмдэглэгээ (migration 0014)
+export type BatchStationProgress = {
+  id: string
+  batch_id: string
+  station: StationCode
+  done_at: string
+  done_by: string | null
+}
+
+// station_work view-ийн мөр (migration 0016): батч × ТК-ийн мөр × замын станц,
+// qty = бохир × батчийн порц (DB талд бодогдсон)
+export type StationWorkRow = {
+  batch_id: string
+  production_date: string
+  product_id: string
+  status: BatchStatus
+  total_qty: number
+  tech_card_id: string
+  batch_seq: number
+  group_id: string
+  group_name: string
+  group_sort: number
+  material_id: string
+  material_name: string
+  material_code: string
+  base_unit: CanonicalUnit
+  item_sort: number
+  qty: number
+  station: StationCode
 }
 
 export type GoodsReceiptItem = {

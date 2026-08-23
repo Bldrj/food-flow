@@ -6,7 +6,12 @@ import Link from "next/link"
 import { createClient } from "@/lib/supabase/client"
 import { useDevUser } from "@/components/dev-user-provider"
 import { canAccess } from "@/lib/permissions"
-import type { BatchStatus, OrderStatus } from "@/lib/types"
+import {
+  STATION_LABELS,
+  type BatchStatus,
+  type OrderStatus,
+  type StationCode,
+} from "@/lib/types"
 
 import { Badge } from "@/components/ui/badge"
 import {
@@ -19,6 +24,7 @@ import {
 import { Input } from "@/components/ui/input"
 import { Skeleton } from "@/components/ui/skeleton"
 import {
+  ChefHatIcon,
   ClipboardListIcon,
   FactoryIcon,
   TriangleAlertIcon,
@@ -33,6 +39,7 @@ type OrderRow = {
 }
 
 type BatchRow = {
+  id: string
   product_id: string
   status: BatchStatus
   total_qty: number
@@ -117,18 +124,24 @@ export default function HomePage() {
   const [needs, setNeeds] = React.useState<NeedRow[]>([])
   const [issued, setIssued] = React.useState<Map<string, number>>(new Map())
   const [balances, setBalances] = React.useState<BalanceRow[]>([])
+  const [stationWork, setStationWork] = React.useState<
+    { batch_id: string; station: StationCode }[]
+  >([])
+  const [stationDone, setStationDone] = React.useState<
+    { batch_id: string; station: StationCode }[]
+  >([])
   const [loading, setLoading] = React.useState(true)
 
   const load = React.useCallback(async () => {
     setLoading(true)
-    const [ord, bat, tot, need, iss, bal] = await Promise.all([
+    const [ord, bat, tot, need, iss, bal, sw] = await Promise.all([
       supabase
         .from("orders")
         .select("id, status, items:order_items(qty)")
         .eq("production_date", date),
       supabase
         .from("production_batches")
-        .select("product_id, status, total_qty")
+        .select("id, product_id, status, total_qty")
         .eq("production_date", date),
       supabase
         .from("daily_order_totals")
@@ -146,9 +159,31 @@ export default function HomePage() {
         .from("stock_balances")
         .select("material_id, balance, min_stock, is_active")
         .eq("is_active", true),
+      supabase
+        .from("station_work")
+        .select("batch_id, station")
+        .eq("production_date", date),
     ])
     setOrders((ord.data ?? []) as OrderRow[])
-    setBatches((bat.data ?? []) as BatchRow[])
+    const batchRows = (bat.data ?? []) as BatchRow[]
+    setBatches(batchRows)
+    setStationWork(
+      (sw.data ?? []) as { batch_id: string; station: StationCode }[],
+    )
+    if (batchRows.length > 0) {
+      const { data: prog } = await supabase
+        .from("batch_station_progress")
+        .select("batch_id, station")
+        .in(
+          "batch_id",
+          batchRows.map((b) => b.id),
+        )
+      setStationDone(
+        (prog ?? []) as { batch_id: string; station: StationCode }[],
+      )
+    } else {
+      setStationDone([])
+    }
     setOrderTotals((tot.data ?? []) as OrderTotal[])
     setNeeds((need.data ?? []) as NeedRow[])
     setIssued(
@@ -207,6 +242,34 @@ export default function HomePage() {
   const negativeStock = balances.filter((b) => b.balance < 0)
   const lowStock = balances.filter(
     (b) => b.min_stock !== null && b.balance < b.min_stock,
+  )
+
+  // --- Станцын явц (эхэлсэн/дууссан батчуудын хүрээнд) ---
+  const activeBatchIds = new Set(
+    batches.filter((b) => b.status !== "planned").map((b) => b.id),
+  )
+  const stationStats = (Object.keys(STATION_LABELS) as StationCode[]).map(
+    (s) => {
+      // Савлагаа бүх батчид хамаатай; бусад нь замдаа энэ станцтай батчууд
+      const relevant =
+        s === "packaging"
+          ? activeBatchIds
+          : new Set(
+              stationWork
+                .filter(
+                  (w) => w.station === s && activeBatchIds.has(w.batch_id),
+                )
+                .map((w) => w.batch_id),
+            )
+      const done = stationDone.filter(
+        (d) => d.station === s && relevant.has(d.batch_id),
+      ).length
+      return { station: s, done, total: relevant.size }
+    },
+  )
+  const stationTotals = stationStats.reduce(
+    (acc, s) => ({ done: acc.done + s.done, total: acc.total + s.total }),
+    { done: 0, total: 0 },
   )
 
   // Анхааруулгын жагсаалт (тэг биш үед л харагдана)
@@ -372,6 +435,26 @@ export default function HomePage() {
                     ? ` · дутуу ${underIssued.length}`
                     : ""
                 }`
+          }
+        />
+        <StatCard
+          title="Станцууд"
+          icon={<ChefHatIcon className="size-4" />}
+          href="/stations"
+          allowed={canAccess(user.role, "/stations")}
+          loading={loading}
+          value={
+            stationTotals.total === 0
+              ? "—"
+              : `${stationTotals.done}/${stationTotals.total}`
+          }
+          detail={
+            stationTotals.total === 0
+              ? "эхэлсэн батч алга"
+              : stationStats
+                  .filter((s) => s.total > 0)
+                  .map((s) => `${STATION_LABELS[s.station]} ${s.done}/${s.total}`)
+                  .join(" · ")
           }
         />
         <StatCard

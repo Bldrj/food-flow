@@ -29,6 +29,7 @@ import {
 } from "@/components/ui/sidebar";
 import {
   BookOpenIcon,
+  ChefHatIcon,
   ChevronRightIcon,
   ClipboardListIcon,
   FactoryIcon,
@@ -36,6 +37,7 @@ import {
   WarehouseIcon,
 } from "lucide-react";
 import { canAccess } from "@/lib/permissions";
+import { STATION_LABELS, type StationCode } from "@/lib/types";
 
 // Лавлагаа (master data) дэд цэсүүд — шинэ лавлах нэмэгдэхэд энд мөр нэмнэ
 const MASTER_DATA_ITEMS = [
@@ -64,6 +66,14 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   const warehouseItems = WAREHOUSE_ITEMS.filter((item) =>
     canAccess(user.role, item.url),
   );
+  // Станцын дүртэй хэрэглэгч зөвхөн өөрийн станцаа харна
+  const stationItems = canAccess(user.role, "/stations")
+    ? (Object.entries(STATION_LABELS) as [StationCode, string][])
+        .filter(
+          ([code]) => user.role !== "station" || user.station === code,
+        )
+        .map(([code, title]) => ({ title, url: `/stations/${code}` }))
+    : [];
 
   return (
     <Sidebar collapsible="icon" {...props}>
@@ -136,6 +146,35 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
                   <span>Үйлдвэрлэл</span>
                 </SidebarMenuButton>
               </SidebarMenuItem>
+            )}
+            {stationItems.length > 0 && (
+              <Collapsible
+                defaultOpen
+                className="group/collapsible"
+                render={<SidebarMenuItem />}
+              >
+                <CollapsibleTrigger
+                  render={<SidebarMenuButton tooltip="Станцууд" />}
+                >
+                  <ChefHatIcon />
+                  <span>Станцууд</span>
+                  <ChevronRightIcon className="ml-auto transition-transform duration-200 group-data-open/collapsible:rotate-90" />
+                </CollapsibleTrigger>
+                <CollapsibleContent>
+                  <SidebarMenuSub>
+                    {stationItems.map((item) => (
+                      <SidebarMenuSubItem key={item.url}>
+                        <SidebarMenuSubButton
+                          isActive={pathname === item.url}
+                          render={<Link href={item.url} />}
+                        >
+                          <span>{item.title}</span>
+                        </SidebarMenuSubButton>
+                      </SidebarMenuSubItem>
+                    ))}
+                  </SidebarMenuSub>
+                </CollapsibleContent>
+              </Collapsible>
             )}
             {warehouseItems.length > 0 && (
               <Collapsible

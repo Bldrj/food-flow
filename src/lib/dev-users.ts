@@ -4,7 +4,7 @@
 // "delivery" дүрийг хассан (2026-08-23): хүргэлтийн мэдээлэл цаасаар ирж,
 // менежер системд оруулдаг тул тусдаа дүр шаардлагагүй
 export type Role = "manager" | "storekeeper" | "station"
-export type Station = "prep" | "hot" | "packaging"
+export type Station = "prep" | "hot" | "hot_aux" | "packaging"
 
 export type DevUser = {
   id: string
@@ -36,10 +36,17 @@ export const DEV_USERS: DevUser[] = [
   },
   {
     id: "station-hot",
-    name: "Халуун бэлтгэл",
+    name: "Халуун",
     role: "station",
     station: "hot",
-    roleLabel: "Станц — Халуун бэлтгэл",
+    roleLabel: "Станц — Халуун",
+  },
+  {
+    id: "station-hot-aux",
+    name: "Халуун туслах",
+    role: "station",
+    station: "hot_aux",
+    roleLabel: "Станц — Халуун туслах",
   },
   {
     id: "station-packaging",
