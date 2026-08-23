@@ -11,8 +11,10 @@ import { MaterialPicker } from "@/components/material-picker"
 import {
   BASE_UNIT_LABELS,
   RECEIPT_STATUS_LABELS,
+  STATION_LABELS,
   type CanonicalUnit,
   type Material,
+  type StationCode,
   type StockIssue,
   type StockIssueItem,
 } from "@/lib/types"
@@ -68,6 +70,7 @@ type ItemForm = {
   material_id: string
   qty: string
   unit: string // INPUT_UNITS-ийн unit нэр
+  station: string // "none" = харьяалалгүй
   note: string
 }
 
@@ -75,6 +78,7 @@ const EMPTY_ITEM_FORM: ItemForm = {
   material_id: "",
   qty: "",
   unit: "",
+  station: "none",
   note: "",
 }
 
@@ -194,6 +198,7 @@ export default function StockIssueDetailPage() {
       stock_issue_id: issue.id,
       material_id: itemForm.material_id,
       qty,
+      station: itemForm.station === "none" ? null : itemForm.station,
       note: itemForm.note.trim() || null,
     })
     setItemSaving(false)
@@ -206,6 +211,19 @@ export default function StockIssueDetailPage() {
       return
     }
     setItemForm(EMPTY_ITEM_FORM)
+    load()
+  }
+
+  // Мөрийн цехийн харьяаллыг солино
+  async function setItemStation(item: ItemRow, value: string) {
+    const { error } = await supabase
+      .from("stock_issue_items")
+      .update({ station: value === "none" ? null : value })
+      .eq("id", item.id)
+    if (error) {
+      setActionError(error.message)
+      return
+    }
     load()
   }
 
@@ -381,6 +399,7 @@ export default function StockIssueDetailPage() {
           <TableHeader>
             <TableRow>
               <TableHead>Материал</TableHead>
+              <TableHead className="w-36">Цех</TableHead>
               <TableHead className="w-36">Олгох тоо</TableHead>
               <TableHead className="w-32">Үлдэгдэл</TableHead>
               {isDraft && <TableHead className="w-36">Батласны дараа</TableHead>}
@@ -392,7 +411,7 @@ export default function StockIssueDetailPage() {
             {items.length === 0 ? (
               <TableRow>
                 <TableCell
-                  colSpan={isDraft ? 6 : 4}
+                  colSpan={isDraft ? 7 : 5}
                   className="h-16 text-center text-muted-foreground"
                 >
                   Мөр нэмээгүй байна
@@ -412,6 +431,35 @@ export default function StockIssueDetailPage() {
                       <span className="font-mono text-xs text-muted-foreground">
                         {item.material?.code}
                       </span>
+                    </TableCell>
+                    <TableCell>
+                      {isDraft ? (
+                        <Select
+                          items={{ none: "—", ...STATION_LABELS }}
+                          value={item.station ?? "none"}
+                          onValueChange={(v) =>
+                            setItemStation(item, v as string)
+                          }
+                        >
+                          <SelectTrigger className="h-8 w-32">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="none">—</SelectItem>
+                            {(
+                              Object.keys(STATION_LABELS) as StationCode[]
+                            ).map((st) => (
+                              <SelectItem key={st} value={st}>
+                                {STATION_LABELS[st]}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      ) : item.station ? (
+                        STATION_LABELS[item.station]
+                      ) : (
+                        <span className="text-muted-foreground">—</span>
+                      )}
                     </TableCell>
                     <TableCell>
                       {isDraft ? (
@@ -493,7 +541,7 @@ export default function StockIssueDetailPage() {
       {isDraft && (
         <div className="grid gap-3 rounded-lg border p-4">
           <p className="text-sm font-medium">Мөр нэмэх</p>
-          <div className="grid gap-3 sm:grid-cols-[1fr_6rem_6rem_1fr_auto]">
+          <div className="grid gap-3 sm:grid-cols-[1fr_6rem_6rem_8rem_1fr_auto]">
             <div className="grid gap-2">
               <Label>Материал *</Label>
               <MaterialPicker
@@ -541,6 +589,28 @@ export default function StockIssueDetailPage() {
                       {u.unit}
                     </SelectItem>
                   ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="grid gap-2">
+              <Label>Цех</Label>
+              <Select
+                items={{ none: "—", ...STATION_LABELS }}
+                value={itemForm.station}
+                onValueChange={(v) => setItem("station", v as string)}
+              >
+                <SelectTrigger className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">—</SelectItem>
+                  {(Object.keys(STATION_LABELS) as StationCode[]).map(
+                    (st) => (
+                      <SelectItem key={st} value={st}>
+                        {STATION_LABELS[st]}
+                      </SelectItem>
+                    ),
+                  )}
                 </SelectContent>
               </Select>
             </div>

@@ -273,11 +273,33 @@ export default function ProductionPage() {
   const toIssue = needs.filter((n) => remaining(n) > 0)
   const shortage = needs.filter((n) => n.balance < remaining(n))
 
-  // Дутуу олголтын хэмжээгээр зарлагын ноорог үүсгээд баримт руу үсэрнэ
+  // Дутуу олголтын хэмжээгээр зарлагын ноорог үүсгээд баримт руу үсэрнэ.
+  // Мөр бүрийн цехийг материалын замын эхний ажлын цехээс автоматаар онооно
   async function createIssueDraft() {
     if (toIssue.length === 0) return
     setIssuing(true)
     setError(null)
+
+    // Материал бүрийн замд орсон цехүүд (station_work-оос)
+    const { data: sw } = await supabase
+      .from("station_work")
+      .select("material_id, station")
+      .eq("production_date", date)
+    const stationsByMat = new Map<string, Set<string>>()
+    for (const r of (sw ?? []) as { material_id: string; station: string }[]) {
+      const set = stationsByMat.get(r.material_id) ?? new Set<string>()
+      set.add(r.station)
+      stationsByMat.set(r.material_id, set)
+    }
+    const firstStation = (materialId: string): string | null => {
+      const set = stationsByMat.get(materialId)
+      if (!set) return null
+      for (const s of ["prep", "hot_aux", "hot"]) {
+        if (set.has(s)) return s
+      }
+      return set.has("packaging") ? "packaging" : null
+    }
+
     const { data: issue, error: headErr } = await supabase
       .from("stock_issues")
       .insert({
@@ -297,6 +319,7 @@ export default function ProductionPage() {
         stock_issue_id: issue.id,
         material_id: n.material_id,
         qty: Number(remaining(n).toFixed(6)),
+        station: firstStation(n.material_id),
       })),
     )
     setIssuing(false)

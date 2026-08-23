@@ -216,9 +216,20 @@ export default function WarehousePage() {
             тооллогын залруулгыг харна
           </p>
         </div>
-        <Button variant="outline" render={<Link href="/warehouse/receipts" />}>
-          Бараа хүлээн авах
-        </Button>
+        <div className="flex gap-2">
+          <Button
+            variant="outline"
+            render={<Link href="/warehouse/receipts" />}
+          >
+            Бараа хүлээн авах
+          </Button>
+          <Button
+            variant="outline"
+            render={<Link href="/warehouse/issues" />}
+          >
+            Материал олгох
+          </Button>
+        </div>
       </div>
 
       {negativeCount > 0 && (

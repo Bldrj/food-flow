@@ -29,6 +29,7 @@ import {
 } from "@/components/ui/sidebar";
 import {
   BookOpenIcon,
+  ChartColumnIcon,
   ChefHatIcon,
   ChevronRightIcon,
   ClipboardListIcon,
@@ -48,6 +49,11 @@ const MASTER_DATA_ITEMS = [
   { title: "Технологийн карт", url: "/tech-cards" },
 ];
 
+// Тайлан дэд цэсүүд — Үе 5-ын тайлангууд энд нэмэгдэнэ
+const REPORT_ITEMS = [
+  { title: "Үлдэгдлийн нэгтгэл", url: "/reports/inventory" },
+];
+
 // Агуулах (transaction) дэд цэсүүд
 const WAREHOUSE_ITEMS = [
   { title: "Үлдэгдэл", url: "/warehouse" },
@@ -64,6 +70,9 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
     canAccess(user.role, item.url),
   );
   const warehouseItems = WAREHOUSE_ITEMS.filter((item) =>
+    canAccess(user.role, item.url),
+  );
+  const reportItems = REPORT_ITEMS.filter((item) =>
     canAccess(user.role, item.url),
   );
   // Цехийн дүртэй хэрэглэгч зөвхөн өөрийн цехээ харна
@@ -192,6 +201,35 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
                 <CollapsibleContent>
                   <SidebarMenuSub>
                     {warehouseItems.map((item) => (
+                      <SidebarMenuSubItem key={item.url}>
+                        <SidebarMenuSubButton
+                          isActive={pathname === item.url}
+                          render={<Link href={item.url} />}
+                        >
+                          <span>{item.title}</span>
+                        </SidebarMenuSubButton>
+                      </SidebarMenuSubItem>
+                    ))}
+                  </SidebarMenuSub>
+                </CollapsibleContent>
+              </Collapsible>
+            )}
+            {reportItems.length > 0 && (
+              <Collapsible
+                defaultOpen
+                className="group/collapsible"
+                render={<SidebarMenuItem />}
+              >
+                <CollapsibleTrigger
+                  render={<SidebarMenuButton tooltip="Тайлан" />}
+                >
+                  <ChartColumnIcon />
+                  <span>Тайлан</span>
+                  <ChevronRightIcon className="ml-auto transition-transform duration-200 group-data-open/collapsible:rotate-90" />
+                </CollapsibleTrigger>
+                <CollapsibleContent>
+                  <SidebarMenuSub>
+                    {reportItems.map((item) => (
                       <SidebarMenuSubItem key={item.url}>
                         <SidebarMenuSubButton
                           isActive={pathname === item.url}

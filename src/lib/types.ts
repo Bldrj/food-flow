@@ -153,6 +153,7 @@ export type StockIssueItem = {
   stock_issue_id: string
   material_id: string
   qty: number // base_unit-ээр
+  station: StationCode | null // аль цехэд олгогдсон (0019); NULL = харьяалалгүй
   note: string | null
   created_at: string
 }

@@ -75,9 +75,8 @@ export default function StationCountsPage() {
       return
     }
     setLoading(true)
-    const [workRes, cntRes] = await Promise.all([
-      // Өнөөдөр энэ цехэд ирсэн материалууд = эхэлсэн/дууссан батчуудын
-      // энэ цехийн ажлын мөрүүд (Σ = хэрэглэвэл зохих нийт)
+    const [workRes, cntRes, issuedRes] = await Promise.all([
+      // Энэ цехийн өнөөдрийн ажлын материалууд (жагсаалтын суурь)
       supabase
         .from("station_work")
         .select("*")
@@ -89,50 +88,64 @@ export default function StationCountsPage() {
         .select("*")
         .eq("station", station)
         .eq("date", date),
+      // Энэ цехэд БОДИТООР олгогдсон Σ (зарлагын мөрийн цехийн харьяалал)
+      supabase
+        .from("daily_station_issued")
+        .select("material_id, issued_qty")
+        .eq("production_date", date)
+        .eq("station", station),
     ])
     const work = (workRes.data ?? []) as StationWorkRow[]
     const counts = (cntRes.data ?? []) as StationStockCount[]
     setExisting(counts)
+    const issuedByMat = new Map(
+      (
+        (issuedRes.data ?? []) as { material_id: string; issued_qty: number }[]
+      ).map((r) => [r.material_id, Number(r.issued_qty)]),
+    )
 
-    // Материалаар нэгтгэнэ
+    // Материалаар нэгтгэнэ: авсан = бодит олгогдсон (олгоогүй бол —)
     const byMat = new Map<string, CountRow>()
     for (const w of work) {
-      const cur = byMat.get(w.material_id)
-      if (cur) cur.received += Number(w.qty)
-      else
+      if (!byMat.has(w.material_id)) {
         byMat.set(w.material_id, {
           material_id: w.material_id,
           name: w.material_name,
           code: w.material_code,
           base_unit: w.base_unit,
-          received: Number(w.qty),
+          received: issuedByMat.get(w.material_id) ?? 0,
         })
+      }
+    }
+    // Олгогдсон ч ажлын жагсаалтад байхгүй материал (чөлөөт олголт)
+    for (const [mid, qty] of issuedByMat) {
+      const cur = byMat.get(mid)
+      if (cur) cur.received = qty
     }
     // Тоологдсон ч ажлын жагсаалтад байхгүй материалыг мөн оруулна
     const matById = new Map<string, Material>()
-    if (counts.some((c) => !byMat.has(c.material_id))) {
+    const missingIds = [
+      ...new Set([
+        ...counts.map((c) => c.material_id),
+        ...issuedByMat.keys(),
+      ]),
+    ].filter((id) => !byMat.has(id))
+    if (missingIds.length > 0) {
       const { data: mats } = await supabase
         .from("materials")
         .select("*")
-        .in(
-          "id",
-          counts
-            .filter((c) => !byMat.has(c.material_id))
-            .map((c) => c.material_id),
-        )
+        .in("id", missingIds)
       for (const m of (mats ?? []) as Material[]) matById.set(m.id, m)
     }
-    for (const c of counts) {
-      if (!byMat.has(c.material_id)) {
-        const m = matById.get(c.material_id)
-        byMat.set(c.material_id, {
-          material_id: c.material_id,
-          name: m?.name ?? "?",
-          code: m?.code ?? "",
-          base_unit: m?.base_unit ?? "kg",
-          received: 0,
-        })
-      }
+    for (const id of missingIds) {
+      const m = matById.get(id)
+      byMat.set(id, {
+        material_id: id,
+        name: m?.name ?? "?",
+        code: m?.code ?? "",
+        base_unit: m?.base_unit ?? "kg",
+        received: issuedByMat.get(id) ?? 0,
+      })
     }
     setRows(
       [...byMat.values()].sort((a, b) => a.name.localeCompare(b.name)),
@@ -329,7 +342,7 @@ export default function StationCountsPage() {
             <TableHeader>
               <TableRow>
                 <TableHead>Материал</TableHead>
-                <TableHead className="w-32">Авсан (нийт)</TableHead>
+                <TableHead className="w-32">Авсан (олгогдсон)</TableHead>
                 <TableHead className="w-36">Үлдэгдэл</TableHead>
                 <TableHead className="w-36">Хаягдал</TableHead>
               </TableRow>

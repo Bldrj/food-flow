@@ -40,6 +40,7 @@ const BREADCRUMBS: Record<string, string[]> = {
   "/stations/hot/counts": ["Цех", "Халуун", "Өдрийн тооллого"],
   "/stations/hot_aux/counts": ["Цех", "Халуун туслах", "Өдрийн тооллого"],
   "/stations/packaging/counts": ["Цех", "Савлагаа", "Өдрийн тооллого"],
+  "/reports/inventory": ["Тайлан", "Үлдэгдлийн нэгтгэл"],
   "/warehouse": ["Агуулах", "Үлдэгдэл"],
   "/warehouse/receipts": ["Агуулах", "Бараа хүлээн авах"],
   "/warehouse/issues": ["Агуулах", "Материал олгох"],

@@ -48,6 +48,19 @@ type HeaderForm = {
   note: string
 }
 
+/** today()-с n хоногийн дараах огноо (тест огноог дагана) */
+function addDays(n: number): string {
+  const d = new Date(today() + "T00:00:00")
+  d.setDate(d.getDate() + n)
+  return d.toISOString().slice(0, 10)
+}
+
+const QUICK_DATES = [
+  { label: "Өнөөдөр", days: 0 },
+  { label: "Маргааш", days: 1 },
+  { label: "Нөгөөдөр", days: 2 },
+]
+
 
 export default function StockIssuesPage() {
   const supabase = React.useMemo(() => createClient(), [])
@@ -308,6 +321,27 @@ export default function StockIssuesPage() {
                   }))
                 }
               />
+              <div className="flex gap-2">
+                {QUICK_DATES.map((q) => {
+                  const value = addDays(q.days)
+                  const active = headerForm.production_date === value
+                  return (
+                    <Button
+                      key={q.days}
+                      size="sm"
+                      variant={active ? "default" : "outline"}
+                      onClick={() =>
+                        setHeaderForm((f) => ({
+                          ...f,
+                          production_date: value,
+                        }))
+                      }
+                    >
+                      {q.label}
+                    </Button>
+                  )
+                })}
+              </div>
               <p className="text-xs text-muted-foreground">
                 Аль өдрийн үйлдвэрлэлд олгож буйг заана — /production дээрх
                 «Олгосон» багана энэ огноогоор бодогдоно
