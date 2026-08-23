@@ -46,8 +46,11 @@ function parseInstructions(text: string | null): InstructionSection[] {
 
 const norm = (s: string) => s.trim().toLowerCase()
 
-// Савлагааны задаргаа: тухайн хоолыг аль захиалагчид хэдээр савлах вэ
-type CustomerBreakdown = { customer: string; qty: number }
+// Замын каноник дараалал — савлагааны өмнөх "сүүлчийн ажлын цех"-ийг олоход
+const CANONICAL: StationCode[] = ["prep", "hot_aux", "hot", "packaging"]
+
+const itemKey = (r: StationWorkRow) =>
+  `${r.batch_id}|${r.group_id}|${r.material_id}`
 
 function today(): string {
   return new Date().toISOString().slice(0, 10)
@@ -92,9 +95,6 @@ export default function StationPage() {
     Map<string, Set<string>>
   >(new Map())
   const [progress, setProgress] = React.useState<BatchStationProgress[]>([])
-  const [breakdown, setBreakdown] = React.useState<
-    Map<string, CustomerBreakdown[]>
-  >(new Map())
   const [loading, setLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
   const [marking, setMarking] = React.useState(false)
@@ -107,6 +107,8 @@ export default function StationPage() {
       return
     }
     setLoading(true)
+    // station_work-ийг бүх станцаар нь авна: савлагаанд материал бүрийн
+    // өмнөх цехийг (замыг) мэдэх шаардлагатай
     const [batchRes, workRes] = await Promise.all([
       supabase
         .from("production_batches")
@@ -115,14 +117,11 @@ export default function StationPage() {
         )
         .eq("production_date", date)
         .eq("status", "in_production"),
-      isPackaging
-        ? Promise.resolve({ data: [] as StationWorkRow[] })
-        : supabase
-            .from("station_work")
-            .select("*")
-            .eq("production_date", date)
-            .eq("station", station)
-            .eq("status", "in_production"),
+      supabase
+        .from("station_work")
+        .select("*")
+        .eq("production_date", date)
+        .eq("status", "in_production"),
     ])
     const batchRows = (batchRes.data ?? []) as BatchRow[]
     setBatches(batchRows)
@@ -149,12 +148,12 @@ export default function StationPage() {
       setTkGroupNames(new Map())
     }
 
-    // Гүйцэтгэлийн тэмдэглэгээ
+    // Гүйцэтгэлийн тэмдэглэгээ — бүх станцынхыг авна (савлагаанд өмнөх цех
+    // дууссан эсэхийг харуулахад хэрэгтэй)
     if (batchRows.length > 0) {
       const { data: prog } = await supabase
         .from("batch_station_progress")
         .select("*")
-        .eq("station", station)
         .in(
           "batch_id",
           batchRows.map((b) => b.id),
@@ -164,52 +163,44 @@ export default function StationPage() {
       setProgress([])
     }
 
-    // Савлагаа: хоол бүрийг аль захиалагчид хэдээр савлахыг харуулна
-    if (isPackaging && batchRows.length > 0) {
-      const { data: items } = await supabase
-        .from("order_items")
-        .select("product_id, qty, order:orders(status, production_date, customer:customers(name))")
-        .in(
-          "product_id",
-          [...new Set(batchRows.map((b) => b.product_id))],
-        )
-      const map = new Map<string, CustomerBreakdown[]>()
-      for (const it of (items ?? []) as unknown as {
-        product_id: string
-        qty: number
-        order: {
-          status: string
-          production_date: string
-          customer: { name: string } | null
-        } | null
-      }[]) {
-        if (!it.order) continue
-        if (it.order.production_date !== date) continue
-        if (["draft", "cancelled"].includes(it.order.status)) continue
-        const list = map.get(it.product_id) ?? []
-        list.push({
-          customer: it.order.customer?.name ?? "—",
-          qty: it.qty,
-        })
-        map.set(it.product_id, list)
-      }
-      setBreakdown(map)
-    } else {
-      setBreakdown(new Map())
-    }
     setLoading(false)
-  }, [supabase, date, station, isValid, isOwnDenied, isPackaging])
+  }, [supabase, date, station, isValid, isOwnDenied])
 
   React.useEffect(() => {
     load()
   }, [load])
 
-  const progressByBatch = new Map(progress.map((p) => [p.batch_id, p]))
+  // Өөрийн станцын «Дууслаа» тэмдэглэгээ (толгойн төлөв)
+  const progressByBatch = new Map(
+    progress.filter((p) => p.station === station).map((p) => [p.batch_id, p]),
+  )
+  // Аль батч аль станцад дууссаныг түргэн шалгах олонлог
+  const doneSet = new Set(progress.map((p) => `${p.batch_id}|${p.station}`))
+  // Өөрийн станцын ажлын мөрүүд
+  const ownWork = work.filter((w) => w.station === station)
   const workByBatch = new Map<string, StationWorkRow[]>()
-  for (const w of work) {
+  for (const w of ownWork) {
     const list = workByBatch.get(w.batch_id) ?? []
     list.push(w)
     workByBatch.set(w.batch_id, list)
+  }
+  // Мөр бүрийн зам (бүх станцын мөрүүдээс) — савлагааны өмнөх цехийг олоход
+  const routeByItem = new Map<string, Set<StationCode>>()
+  for (const w of work) {
+    const set = routeByItem.get(itemKey(w)) ?? new Set<StationCode>()
+    set.add(w.station)
+    routeByItem.set(itemKey(w), set)
+  }
+  // Материалыг савлагаанд ирэхийн өмнө хамгийн сүүлд боловсруулах цех
+  function upstreamOf(r: StationWorkRow): StationCode | null {
+    const route = routeByItem.get(itemKey(r))
+    if (!route) return null
+    const workStations = CANONICAL.filter(
+      (s) => s !== "packaging" && route.has(s),
+    )
+    return workStations.length > 0
+      ? workStations[workStations.length - 1]
+      : null
   }
   // Энэ станцад ажилтай батчууд (савлагаа: бүх батч)
   const relevantBatches = batches
@@ -284,7 +275,7 @@ export default function StationPage() {
           </h1>
           <p className="text-sm text-muted-foreground">
             {isPackaging
-              ? "Өдрийн батч бүрийн порц + захиалагчийн задаргаа"
+              ? "Батч бүрийн савлах порц + материалууд бүлэг тус бүрээр (цехээс хүлээгдэж буй / ✓ хүлээн авсан)"
               : "Үйлдвэрлэлд орсон батчуудын энэ станцад хийгдэх ажил"}
           </p>
         </div>
@@ -318,7 +309,6 @@ export default function StationPage() {
             list.push(r)
             groups.set(r.group_name, list)
           }
-          const customers = breakdown.get(b.product_id) ?? []
           return (
             <div
               key={b.id}
@@ -364,22 +354,80 @@ export default function StationPage() {
               </div>
 
               {isPackaging ? (
-                <div className="p-4">
-                  {customers.length === 0 ? (
-                    <p className="text-muted-foreground">Захиалга олдсонгүй</p>
-                  ) : (
-                    <div className="grid gap-x-8 gap-y-1 sm:grid-cols-2">
-                      {customers.map((c, i) => (
-                        <p
-                          key={i}
-                          className="flex justify-between border-b py-1 text-lg last:border-b-0"
-                        >
-                          <span>{c.customer}</span>
-                          <span className="font-semibold">{c.qty} порц</span>
-                        </p>
-                      ))}
-                    </div>
-                  )}
+                <div className="grid gap-4 p-4">
+                  {/* Материалууд бүлэг тус бүрээр, мөр бүр дээр төлөв:
+                      цехээс хүлээгдэж буй (шар) / хүлээн авсан ✓ /
+                      badge-гүй = агуулахаас шууд */}
+                  {(() => {
+                    const sorted = [...rows].sort(
+                      (a, x) =>
+                        a.group_sort - x.group_sort ||
+                        a.item_sort - x.item_sort,
+                    )
+                    const byGroup = new Map<string, StationWorkRow[]>()
+                    for (const r of sorted) {
+                      const list = byGroup.get(r.group_name) ?? []
+                      list.push(r)
+                      byGroup.set(r.group_name, list)
+                    }
+                    const waitingCount = sorted.filter((r) => {
+                      const up = upstreamOf(r)
+                      return (
+                        up !== null && !doneSet.has(`${r.batch_id}|${up}`)
+                      )
+                    }).length
+                    return (
+                      <>
+                        {waitingCount > 0 && (
+                          <p className="text-sm font-medium text-amber-600">
+                            {waitingCount} материал цехээс хүлээгдэж байна
+                          </p>
+                        )}
+                        {[...byGroup.entries()].map(([name, items]) => (
+                          <div key={name}>
+                            <p className="mb-1 text-sm font-medium text-muted-foreground">
+                              {name}
+                            </p>
+                            <div className="grid gap-x-8 gap-y-1 sm:grid-cols-2">
+                              {items.map((r) => {
+                                const up = upstreamOf(r)
+                                const upDone =
+                                  up !== null &&
+                                  doneSet.has(`${r.batch_id}|${up}`)
+                                return (
+                                  <p
+                                    key={itemKey(r)}
+                                    className="flex items-center justify-between gap-2 border-b py-1 text-lg last:border-b-0"
+                                  >
+                                    <span>{r.material_name}</span>
+                                    <span className="flex items-center gap-2">
+                                      <span className="font-semibold">
+                                        {formatWorkQty(
+                                          Number(r.qty),
+                                          r.base_unit,
+                                        )}
+                                      </span>
+                                      {up !== null &&
+                                        (upDone ? (
+                                          <span className="rounded-md bg-secondary px-1.5 py-0.5 text-xs text-secondary-foreground">
+                                            ✓ {STATION_LABELS[up]}
+                                          </span>
+                                        ) : (
+                                          <span className="rounded-md bg-amber-500/15 px-1.5 py-0.5 text-xs text-amber-600">
+                                            {STATION_LABELS[up]} хүлээгдэж
+                                            буй
+                                          </span>
+                                        ))}
+                                    </span>
+                                  </p>
+                                )
+                              })}
+                            </div>
+                          </div>
+                        ))}
+                      </>
+                    )
+                  })()}
                 </div>
               ) : (
                 <div className="grid gap-4 p-4">
