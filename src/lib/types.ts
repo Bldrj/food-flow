@@ -228,9 +228,14 @@ export type ProductionBatch = {
   production_date: string
   product_id: string
   tech_card_id: string // батч үүсэх мөчийн идэвхтэй ТК (snapshot)
+  batch_seq: number // өдөр+хоолын доторх дугаар №1, №2... (migration 0012)
   total_qty: number
   status: BatchStatus
   created_by: string | null
+  started_at: string | null // migration 0011: шилжилт зөвхөн RPC-ээр
+  started_by: string | null
+  finished_at: string | null
+  finished_by: string | null
   created_at: string
   updated_at: string
 }

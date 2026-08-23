@@ -28,9 +28,12 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import {
+  CheckIcon,
   PackageOpenIcon,
+  PlayIcon,
   RefreshCwIcon,
   TriangleAlertIcon,
+  Undo2Icon,
 } from "lucide-react"
 
 type BatchRow = ProductionBatch & {
@@ -62,6 +65,14 @@ function formatQty(n: number): string {
   })
 }
 
+function formatTime(s: string | null): string {
+  if (!s) return "—"
+  return new Date(s).toLocaleTimeString("sv-SE", {
+    hour: "2-digit",
+    minute: "2-digit",
+  })
+}
+
 export default function ProductionPage() {
   const supabase = React.useMemo(() => createClient(), [])
   const router = useRouter()
@@ -74,6 +85,7 @@ export default function ProductionPage() {
   const [loading, setLoading] = React.useState(true)
   const [generating, setGenerating] = React.useState(false)
   const [issuing, setIssuing] = React.useState(false)
+  const [transitioning, setTransitioning] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
 
   const load = React.useCallback(async () => {
@@ -138,6 +150,43 @@ export default function ProductionPage() {
     load()
   }, [load])
 
+  // Статусын шилжилт — зөвхөн RPC-ээр (start/finish/revert_batch)
+  async function transition(
+    rpc: "start_batch" | "finish_batch" | "revert_batch",
+    batchId: string,
+  ) {
+    setTransitioning(true)
+    setError(null)
+    const args: Record<string, string> =
+      rpc === "revert_batch"
+        ? { p_batch_id: batchId }
+        : { p_batch_id: batchId, p_actor: user.name }
+    const { error } = await supabase.rpc(rpc, args)
+    setTransitioning(false)
+    if (error) {
+      setError(error.message)
+      return
+    }
+    load()
+  }
+
+  // Өдрийн бүх төлөвлөсөн батчийг нэг дор эхлүүлнэ
+  async function startAll() {
+    const planned = batches.filter((b) => b.status === "planned")
+    if (planned.length === 0) return
+    setTransitioning(true)
+    setError(null)
+    const results = await Promise.all(
+      planned.map((b) =>
+        supabase.rpc("start_batch", { p_batch_id: b.id, p_actor: user.name }),
+      ),
+    )
+    setTransitioning(false)
+    const failed = results.find((r) => r.error)
+    if (failed?.error) setError(failed.error.message)
+    load()
+  }
+
   async function generate() {
     setGenerating(true)
     setError(null)
@@ -153,17 +202,40 @@ export default function ProductionPage() {
     load()
   }
 
-  // Батчийн тоо ба одоогийн захиалгын нийлбэрийн зөрүү (нэмэлт захиалгын дохио)
+  // Хоол бүрд батчуудын Σ-ийг одоогийн захиалгын Σ-тэй харьцуулна
+  // (нэг хоолонд олон батч байж болно — 0012)
   const totalByProduct = new Map(orderTotals.map((t) => [t.product_id, t]))
   const batchProductIds = new Set(batches.map((b) => b.product_id))
   const unbatchedTotals = orderTotals.filter(
     (t) => !batchProductIds.has(t.product_id),
   )
-  const staleBatches = batches.filter((b) => {
-    const t = totalByProduct.get(b.product_id)
-    return t ? t.total_qty !== b.total_qty : true
-  })
-  const needsRefresh = unbatchedTotals.length > 0 || staleBatches.length > 0
+  const batchSumByProduct = new Map<string, number>()
+  const batchCountByProduct = new Map<string, number>()
+  for (const b of batches) {
+    batchSumByProduct.set(
+      b.product_id,
+      (batchSumByProduct.get(b.product_id) ?? 0) + b.total_qty,
+    )
+    batchCountByProduct.set(
+      b.product_id,
+      (batchCountByProduct.get(b.product_id) ?? 0) + 1,
+    )
+  }
+  const staleProducts = new Set(
+    [...batchSumByProduct]
+      .filter(
+        ([pid, sum]) => (totalByProduct.get(pid)?.total_qty ?? 0) !== sum,
+      )
+      .map(([pid]) => pid),
+  )
+  const needsRefresh = unbatchedTotals.length > 0 || staleProducts.size > 0
+
+  // Нэг хоолны батчууд зэрэгцэж харагдахаар эрэмбэлнэ
+  const sortedBatches = [...batches].sort(
+    (a, b) =>
+      (a.product?.name ?? "").localeCompare(b.product?.name ?? "") ||
+      a.batch_seq - b.batch_seq,
+  )
 
   // Дутуу олголт = хэрэгцээ − олгосон (0-ээс доош орохгүй); нэмэлт захиалгаар
   // хэрэгцээ өссөн бол зөрүү нь энд гарч ирнэ
@@ -230,6 +302,16 @@ export default function ProductionPage() {
                 ? "Батч үүсгэх"
                 : "Батч шинэчлэх"}
           </Button>
+          {batches.some((b) => b.status === "planned") && (
+            <Button
+              variant="outline"
+              onClick={startAll}
+              disabled={transitioning}
+            >
+              <PlayIcon />
+              Бүгдийг эхлүүлэх
+            </Button>
+          )}
         </div>
       </div>
 
@@ -259,13 +341,14 @@ export default function ProductionPage() {
                   <TableHead className="w-28">Батчийн порц</TableHead>
                   <TableHead className="w-36">Одоогийн захиалга</TableHead>
                   <TableHead className="w-32">Статус</TableHead>
+                  <TableHead className="w-36">Үйлдэл</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {batches.length === 0 && unbatchedTotals.length === 0 ? (
                   <TableRow>
                     <TableCell
-                      colSpan={5}
+                      colSpan={6}
                       className="h-20 text-center text-muted-foreground"
                     >
                       Энэ өдөрт батлагдсан захиалга алга
@@ -273,13 +356,20 @@ export default function ProductionPage() {
                   </TableRow>
                 ) : (
                   <>
-                    {batches.map((b) => {
+                    {sortedBatches.map((b) => {
                       const t = totalByProduct.get(b.product_id)
-                      const stale = t ? t.total_qty !== b.total_qty : true
+                      const stale = staleProducts.has(b.product_id) || !t
+                      const multi =
+                        (batchCountByProduct.get(b.product_id) ?? 0) > 1
                       return (
                         <TableRow key={b.id}>
                           <TableCell className="font-medium">
                             {b.product?.name ?? "—"}{" "}
+                            {multi && (
+                              <Badge variant="secondary">
+                                №{b.batch_seq}
+                              </Badge>
+                            )}{" "}
                             <span className="font-mono text-xs text-muted-foreground">
                               {b.product?.code}
                             </span>
@@ -314,6 +404,54 @@ export default function ProductionPage() {
                               {BATCH_STATUS_LABELS[b.status]}
                             </Badge>
                           </TableCell>
+                          <TableCell>
+                            {b.status === "planned" && (
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                disabled={transitioning}
+                                onClick={() => transition("start_batch", b.id)}
+                              >
+                                <PlayIcon />
+                                Эхлүүлэх
+                              </Button>
+                            )}
+                            {b.status === "in_production" && (
+                              <div className="flex items-center gap-1">
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  disabled={transitioning}
+                                  onClick={() =>
+                                    transition("finish_batch", b.id)
+                                  }
+                                >
+                                  <CheckIcon />
+                                  Дуусгах
+                                </Button>
+                                <Button
+                                  variant="ghost"
+                                  size="icon-sm"
+                                  disabled={transitioning}
+                                  title="Эхлүүлснийг буцаах"
+                                  onClick={() =>
+                                    transition("revert_batch", b.id)
+                                  }
+                                >
+                                  <Undo2Icon />
+                                  <span className="sr-only">
+                                    Эхлүүлснийг буцаах
+                                  </span>
+                                </Button>
+                              </div>
+                            )}
+                            {b.status === "done" && (
+                              <span className="text-xs text-muted-foreground">
+                                {formatTime(b.started_at)}–
+                                {formatTime(b.finished_at)}
+                              </span>
+                            )}
+                          </TableCell>
                         </TableRow>
                       )
                     })}
@@ -336,6 +474,7 @@ export default function ProductionPage() {
                         <TableCell>
                           <Badge variant="outline">Хүлээгдэж буй</Badge>
                         </TableCell>
+                        <TableCell />
                       </TableRow>
                     ))}
                   </>
