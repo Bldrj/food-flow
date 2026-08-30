@@ -6,7 +6,16 @@ import { useRouter } from "next/navigation"
 import { createClient } from "@/lib/supabase/client"
 import { useDevUser } from "@/components/dev-user-provider"
 import { today } from "@/lib/dev-date"
-import { RECEIPT_STATUS_LABELS, type StockIssue } from "@/lib/types"
+import { formatUnitQty } from "@/lib/format-qty"
+import {
+  RECEIPT_STATUS_LABELS,
+  REQUEST_REASON_LABELS,
+  STATION_LABELS,
+  type CanonicalUnit,
+  type MaterialRequest,
+  type StationCode,
+  type StockIssue,
+} from "@/lib/types"
 
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -43,6 +52,10 @@ type IssueRow = StockIssue & {
   items: { count: number }[]
 }
 
+type RequestRow = MaterialRequest & {
+  material: { code: string; name: string; base_unit: CanonicalUnit } | null
+}
+
 type HeaderForm = {
   production_date: string
   note: string
@@ -68,6 +81,8 @@ export default function StockIssuesPage() {
   const { user } = useDevUser()
 
   const [rows, setRows] = React.useState<IssueRow[]>([])
+  const [requests, setRequests] = React.useState<RequestRow[]>([])
+  const [fulfilling, setFulfilling] = React.useState(false)
   const [loading, setLoading] = React.useState(true)
   const [loadError, setLoadError] = React.useState<string | null>(null)
   const [search, setSearch] = React.useState("")
@@ -83,18 +98,136 @@ export default function StockIssuesPage() {
 
   const load = React.useCallback(async () => {
     setLoading(true)
-    const { data, error } = await supabase
-      .from("stock_issues")
-      .select("*, items:stock_issue_items(count)")
-      .order("created_at", { ascending: false })
-    if (error) {
-      setLoadError(error.message)
+    const [issueRes, reqRes] = await Promise.all([
+      supabase
+        .from("stock_issues")
+        .select("*, items:stock_issue_items(count)")
+        .order("created_at", { ascending: false }),
+      // Агуулах руу ирсэн, хараахан ноорогт холбогдоогүй нэхэмжлэлүүд
+      supabase
+        .from("material_requests")
+        .select("*, material:materials(code, name, base_unit)")
+        .eq("target", "warehouse")
+        .eq("status", "pending")
+        .order("created_at"),
+    ])
+    if (issueRes.error) {
+      setLoadError(issueRes.error.message)
     } else {
       setLoadError(null)
-      setRows(data as IssueRow[])
+      setRows(issueRes.data as IssueRow[])
     }
+    setRequests((reqRes.data ?? []) as RequestRow[])
     setLoading(false)
   }, [supabase])
+
+  // Бэлдэцийн задаргааны эцэг мөр (0032): доор нь хүү мөрүүд нь байдаг,
+  // өөрөө зарлагад орохгүй — бүх хүү нь биелэхэд RPC хаана
+  const parentIds = new Set(
+    requests.filter((r) => r.parent_request_id).map((r) => r.parent_request_id!),
+  )
+  const childrenByParent = new Map<string, RequestRow[]>()
+  for (const r of requests) {
+    if (!r.parent_request_id) continue
+    const list = childrenByParent.get(r.parent_request_id) ?? []
+    list.push(r)
+    childrenByParent.set(r.parent_request_id, list)
+  }
+  // Жагсаалтад дээд түвшний мөрүүд л харагдана (хүү нь эцгийнхээ доор)
+  const topRequests = requests.filter((r) => !r.parent_request_id)
+
+  // Ноорогт аль хэдийн холбогдсон нэхэмжлэл давхар баримт үүсгэхгүй;
+  // эцэг мөр зарлагад орохгүй
+  const unlinkedRequests = requests.filter(
+    (r) => !r.stock_issue_id && !parentIds.has(r.id),
+  )
+
+  // Нэхэмжлэлүүдээс зарлагын ноорог үүсгэнэ: үйлдвэрлэх огноо бүрд нэг
+  // баримт; нэг материалын мөрүүд нийлнэ (unique(issue, material) — 0010)
+  async function createFromRequests() {
+    if (unlinkedRequests.length === 0) return
+    setFulfilling(true)
+    setCreateError(null)
+    const byDate = new Map<string, RequestRow[]>()
+    for (const r of unlinkedRequests) {
+      const list = byDate.get(r.request_date) ?? []
+      list.push(r)
+      byDate.set(r.request_date, list)
+    }
+    let firstIssueId: string | null = null
+    for (const [reqDate, reqs] of byDate) {
+      const { data: issue, error: headErr } = await supabase
+        .from("stock_issues")
+        .insert({
+          production_date: reqDate,
+          created_by: user.name,
+          note: "Цехийн нэхэмжлэлээр",
+        })
+        .select("id")
+        .single()
+      if (headErr || !issue) {
+        setCreateError(headErr?.message ?? "Зарлага үүсгэж чадсангүй")
+        setFulfilling(false)
+        return
+      }
+      firstIssueId ??= issue.id
+      // Материалаар нэгтгэнэ; мөрийн цех = хүргэх цех (0032: бэлдэцийн орц
+      // source цехэд очно). Өөр өөр цехэд хүргэх бол цех хоосон үлдэж
+      // тайлбарт жагсаана
+      const byMat = new Map<string, RequestRow[]>()
+      for (const r of reqs) {
+        const list = byMat.get(r.material_id) ?? []
+        list.push(r)
+        byMat.set(r.material_id, list)
+      }
+      const items = [...byMat.entries()].map(([materialId, list]) => {
+        const stations = [
+          ...new Set(list.map((r) => r.deliver_station ?? r.station)),
+        ]
+        return {
+          stock_issue_id: issue.id,
+          material_id: materialId,
+          qty: Number(
+            list.reduce((s, r) => s + Number(r.qty), 0).toFixed(6),
+          ),
+          station: stations.length === 1 ? stations[0] : null,
+          note:
+            stations.length === 1
+              ? null
+              : `Хүргэх: ${stations
+                  .map((s) => STATION_LABELS[s as StationCode])
+                  .join(", ")}`,
+        }
+      })
+      const { error: itemErr } = await supabase
+        .from("stock_issue_items")
+        .insert(items)
+      if (itemErr) {
+        setCreateError(itemErr.message)
+        setFulfilling(false)
+        return
+      }
+      // Нэхэмжлэлүүдийг баримтад холбоно — батлагдахад RPC автоматаар хаана
+      const { error: linkErr } = await supabase
+        .from("material_requests")
+        .update({ stock_issue_id: issue.id })
+        .in(
+          "id",
+          reqs.map((r) => r.id),
+        )
+      if (linkErr) {
+        setCreateError(linkErr.message)
+        setFulfilling(false)
+        return
+      }
+    }
+    setFulfilling(false)
+    if (byDate.size === 1 && firstIssueId) {
+      router.push(`/warehouse/issues/${firstIssueId}`)
+    } else {
+      load()
+    }
+  }
 
   React.useEffect(() => {
     load()
@@ -198,6 +331,109 @@ export default function StockIssuesPage() {
             <code>supabase/migrations/0010_stock_issues.sql</code>-ийг Supabase
             Dashboard &gt; SQL Editor дээр ажиллуулна уу.
           </p>
+        </div>
+      )}
+
+      {/* Цехийн нэхэмжлэл (0022/0032): дутуу эсвэл асуудалтай бараатай
+          цехүүд нэхэж байна — нэг товчоор зарлагын ноорог болгоод батлахад
+          автоматаар хаагдана (defect нь цехийн хаягдалд бүртгэгдэнэ) */}
+      {!loading && topRequests.length > 0 && (
+        <div className="rounded-lg border border-amber-500/50">
+          <div className="flex flex-wrap items-center justify-between gap-2 border-b px-4 py-3">
+            <p className="font-medium text-amber-600">
+              Цехийн нэхэмжлэл ({topRequests.length})
+            </p>
+            <Button
+              size="sm"
+              onClick={createFromRequests}
+              disabled={fulfilling || unlinkedRequests.length === 0}
+            >
+              <PlusIcon />
+              {fulfilling
+                ? "Үүсгэж байна..."
+                : unlinkedRequests.length === 0
+                  ? "Бүгд ноорогт орсон"
+                  : `Зарлагын ноорог үүсгэх (${unlinkedRequests.length})`}
+            </Button>
+          </div>
+          <div className="grid gap-2 p-4">
+            {topRequests.map((r) => {
+              const children = childrenByParent.get(r.id) ?? []
+              // Эцэг мөр өөрөө зарлагад орохгүй — хүү нь бүгд ноорогт орсон
+              // бол «орсон» гэж харагдана
+              const linked =
+                children.length > 0
+                  ? children.every((c) => c.stock_issue_id)
+                  : !!r.stock_issue_id
+              return (
+                <div
+                  key={r.id}
+                  className="border-b pb-2 text-sm last:border-b-0 last:pb-0"
+                >
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div>
+                      <p>
+                        <span className="font-medium">
+                          {r.material?.name ?? "—"}
+                        </span>{" "}
+                        —{" "}
+                        <span className="font-semibold">
+                          {r.material
+                            ? formatUnitQty(Number(r.qty), r.material.base_unit)
+                            : r.qty}
+                        </span>
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        {STATION_LABELS[r.station]} цех · {r.request_date}
+                        {r.deliver_station && r.deliver_station !== r.station
+                          ? ` · хүргэх: ${STATION_LABELS[r.deliver_station]}`
+                          : ""}
+                        {r.requested_by ? ` · ${r.requested_by}` : ""}
+                        {r.note ? ` · ${r.note}` : ""}
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {r.reason === "defect" && (
+                        <Badge
+                          variant="outline"
+                          className="border-amber-500/50 text-amber-600"
+                        >
+                          {REQUEST_REASON_LABELS.defect}
+                        </Badge>
+                      )}
+                      {linked ? (
+                        <Badge variant="secondary">Ноорогт орсон</Badge>
+                      ) : (
+                        <Badge variant="outline">Хүлээгдэж буй</Badge>
+                      )}
+                    </div>
+                  </div>
+                  {/* Бэлдэцийн задаргаа: зарлагад эдгээр орц орно */}
+                  {children.length > 0 && (
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      Задаргаа:{" "}
+                      {children
+                        .map(
+                          (c) =>
+                            `${c.material?.name ?? "—"} ${
+                              c.material
+                                ? formatUnitQty(
+                                    Number(c.qty),
+                                    c.material.base_unit,
+                                  )
+                                : c.qty
+                            }`,
+                        )
+                        .join(", ")}
+                    </p>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+          {createError && (
+            <p className="px-4 pb-3 text-sm text-destructive">{createError}</p>
+          )}
         </div>
       )}
 

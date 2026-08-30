@@ -39,7 +39,7 @@ import { PlusIcon, SearchIcon } from "lucide-react"
 
 type CardRow = TechCard & {
   product: { code: string; name: string } | null
-  groups: { station: string | null }[]
+  groups: { items: { stations: string[] | null }[] | null }[]
 }
 
 export default function TechCardsPage() {
@@ -65,7 +65,9 @@ export default function TechCardsPage() {
     const [cardsRes, productsRes] = await Promise.all([
       supabase
         .from("tech_cards")
-        .select("*, product:products(code, name), groups:tech_card_groups(station)")
+        .select(
+          "*, product:products(code, name), groups:tech_card_groups(items:tech_card_items(stations))",
+        )
         .order("created_at", { ascending: false }),
       supabase
         .from("products")
@@ -219,11 +221,25 @@ export default function TechCardsPage() {
                   </TableCell>
                   <TableCell>
                     {row.groups.length}
-                    {row.groups.some((g) => g.station === null) && (
-                      <Badge variant="outline" className="ml-2 border-amber-500/50 text-amber-600">
-                        Цех дутуу
-                      </Badge>
-                    )}
+                    {(() => {
+                      // Замгүй орц = аль ч цехийн дэлгэцэд гарахгүй (0030)
+                      const noRoute = row.groups.reduce(
+                        (n, g) =>
+                          n +
+                          (g.items ?? []).filter(
+                            (i) => (i.stations ?? []).length === 0,
+                          ).length,
+                        0,
+                      )
+                      return noRoute > 0 ? (
+                        <Badge
+                          variant="outline"
+                          className="ml-2 border-amber-500/50 text-amber-600"
+                        >
+                          {noRoute} орц замгүй
+                        </Badge>
+                      ) : null
+                    })()}
                   </TableCell>
                   <TableCell>
                     <Badge variant={row.is_active ? "default" : "outline"}>

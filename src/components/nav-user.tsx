@@ -37,10 +37,12 @@ import {
 import {
   CalendarClockIcon,
   ChevronsUpDownIcon,
+  DicesIcon,
   Trash2Icon,
 } from "lucide-react"
 
-// Тест горимын хэрэгслүүд: тест огноо + датаг цэвэрлэх RPC-ууд (0018).
+// Тест горимын хэрэгслүүд: тест огноо + датаг цэвэрлэх RPC-ууд (0018) +
+// санамсаргүй үлдэгдэл (0024).
 // Бодит ашиглалтад гарахад (Үе 6) энэ цэсийг бүхэлд нь хасна.
 type ResetKind = "all" | "orders"
 
@@ -78,6 +80,11 @@ export function NavUser({
   const [resetting, setResetting] = React.useState(false)
   const [resetError, setResetError] = React.useState<string | null>(null)
 
+  // Санамсаргүй үлдэгдэл (0024) — ledger-т adjust мөрөөр бичигдэнэ
+  const [randomOpen, setRandomOpen] = React.useState(false)
+  const [randomizing, setRandomizing] = React.useState(false)
+  const [randomError, setRandomError] = React.useState<string | null>(null)
+
   function applyTestDate(value: string) {
     setDevDateOverride(value || null)
     // Бүх дэлгэцийн default огноог шинэчлэхийн тулд дахин ачаална
@@ -97,6 +104,21 @@ export function NavUser({
       return
     }
     setResetKind(null)
+    window.location.reload()
+  }
+
+  async function runRandomStock() {
+    setRandomizing(true)
+    setRandomError(null)
+    const { error } = await supabase.rpc("dev_random_stock", {
+      p_confirm: "RANDOM",
+    })
+    setRandomizing(false)
+    if (error) {
+      setRandomError(error.message)
+      return
+    }
+    setRandomOpen(false)
     window.location.reload()
   }
 
@@ -174,6 +196,23 @@ export function NavUser({
             </DropdownMenuGroup>
             <DropdownMenuSeparator />
 
+            {/* Туршилтын үлдэгдэл оноох (0024) */}
+            <DropdownMenuGroup>
+              <DropdownMenuLabel className="text-xs text-muted-foreground">
+                Туршилтын үлдэгдэл
+              </DropdownMenuLabel>
+              <DropdownMenuItem
+                onClick={() => {
+                  setRandomError(null)
+                  setRandomOpen(true)
+                }}
+              >
+                <DicesIcon />
+                Агуулахын үлдэгдэл random
+              </DropdownMenuItem>
+            </DropdownMenuGroup>
+            <DropdownMenuSeparator />
+
             {/* Туршилтын дата цэвэрлэх (reset.sql-ийн А/Б хэсэг) */}
             <DropdownMenuGroup>
               <DropdownMenuLabel className="text-xs text-muted-foreground">
@@ -241,6 +280,36 @@ export function NavUser({
                 </DialogFooter>
               </>
             )}
+          </DialogContent>
+        </Dialog>
+
+        {/* Санамсаргүй үлдэгдэл оноохын өмнөх баталгаажуулалт */}
+        <Dialog open={randomOpen} onOpenChange={setRandomOpen}>
+          <DialogContent className="sm:max-w-md">
+            <DialogHeader>
+              <DialogTitle>Агуулахын үлдэгдлийг random болгох уу?</DialogTitle>
+              <DialogDescription>
+                Идэвхтэй материал бүрийн үлдэгдлийг санамсаргүй тоо руу
+                хүргэнэ (ш 100–2000, л 10–100, кг 20–200). Ledger-т залруулга
+                (adjust) мөрөөр бичигдэх тул түүх мөшгигдөнө — гүйлгээ устахгүй.
+              </DialogDescription>
+            </DialogHeader>
+            {randomError && (
+              <p className="text-sm text-destructive">{randomError}</p>
+            )}
+            <DialogFooter>
+              <Button
+                variant="outline"
+                onClick={() => setRandomOpen(false)}
+                disabled={randomizing}
+              >
+                Болих
+              </Button>
+              <Button onClick={runRandomStock} disabled={randomizing}>
+                <DicesIcon />
+                {randomizing ? "Оноож байна..." : "Оноох"}
+              </Button>
+            </DialogFooter>
           </DialogContent>
         </Dialog>
       </SidebarMenuItem>

@@ -19,6 +19,16 @@ export function MaterialPicker({
   const [query, setQuery] = React.useState("")
   const ref = React.useRef<HTMLDivElement>(null)
 
+  // Гаднаас өөр материал оноогдвол (жишээ нь мөрөн дээрээс нэхэмжлэл нээхэд)
+  // нээлттэй үлдсэн жагсаалт/хайлтыг тэглэнэ — эс бөгөөс сонгогдсон нэр
+  // харагдахгүй хоосон харагдана
+  const [lastValue, setLastValue] = React.useState(value)
+  if (value !== lastValue) {
+    setLastValue(value)
+    setOpen(false)
+    setQuery("")
+  }
+
   const selected = materials.find((m) => m.id === value)
   const q = query.trim().toLowerCase()
   const filtered = q

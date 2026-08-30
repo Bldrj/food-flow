@@ -266,10 +266,11 @@ export default function ProductionPage() {
       a.batch_seq - b.batch_seq,
   )
 
-  // Олгох шаардлагатай = хэрэгцээ − цехийн үлдэгдэл − олгосон (0-ээс доош
-  // орохгүй); нэмэлт захиалгаар хэрэгцээ өссөн бол зөрүү нь энд гарч ирнэ
+  // Олгох шаардлагатай = хэрэгцээ×(1+хорогдол) − цехийн үлдэгдэл − олгосон
+  // (0-ээс доош орохгүй). Хорогдол материалын тогтмол шинж (materials.loss_pct,
+  // 0020) — нийт хэрэгцээнд биш, зөвхөн агуулахаас авах тооцоонд үйлчилнэ
   const remaining = (n: NeedRow) =>
-    Math.max(n.brutto_need - n.carryover - n.issued, 0)
+    Math.max(n.issue_need - n.carryover - n.issued, 0)
   const toIssue = needs.filter((n) => remaining(n) > 0)
   const shortage = needs.filter((n) => n.balance < remaining(n))
 
@@ -280,13 +281,27 @@ export default function ProductionPage() {
     setIssuing(true)
     setError(null)
 
-    // Материал бүрийн замд орсон цехүүд (station_work-оос)
-    const { data: sw } = await supabase
-      .from("station_work")
-      .select("material_id, station")
-      .eq("production_date", date)
+    // Материал бүрийн замд орсон цехүүд (station_work + бэлдэцийн жорын
+    // орцууд station_intermediate_work-оос — 0026)
+    const [{ data: sw }, { data: iw }] = await Promise.all([
+      supabase
+        .from("station_work")
+        .select("material_id, station")
+        .eq("production_date", date),
+      supabase
+        .from("station_intermediate_work")
+        .select("component_id, station")
+        .eq("production_date", date)
+        .not("component_id", "is", null),
+    ])
     const stationsByMat = new Map<string, Set<string>>()
-    for (const r of (sw ?? []) as { material_id: string; station: string }[]) {
+    for (const r of [
+      ...((sw ?? []) as { material_id: string; station: string }[]),
+      ...((iw ?? []) as { component_id: string; station: string }[]).map(
+        (r) => ({ material_id: r.component_id, station: r.station }),
+      ),
+    ]) {
+      if (!r.station) continue
       const set = stationsByMat.get(r.material_id) ?? new Set<string>()
       set.add(r.station)
       stationsByMat.set(r.material_id, set)
@@ -566,8 +581,8 @@ export default function ProductionPage() {
                   <TableHeader>
                     <TableRow>
                       <TableHead>Материал</TableHead>
-                      <TableHead className="w-28">
-                        Хэрэгцээ (бохир)
+                      <TableHead className="w-32">
+                        Агуулахаас авах
                       </TableHead>
                       <TableHead className="w-28">Цехийн үлдэгдэл</TableHead>
                       <TableHead className="w-28">Олгосон</TableHead>
@@ -590,7 +605,17 @@ export default function ProductionPage() {
                             </span>
                           </TableCell>
                           <TableCell>
-                            {formatUnitQty(n.brutto_need, n.base_unit)}
+                            {formatUnitQty(n.issue_need, n.base_unit)}
+                            {Number(n.loss_pct) > 0 && (
+                              <span className="ml-1 text-xs text-muted-foreground">
+                                (цэвэр{" "}
+                                {formatUnitQty(n.netto_need, n.base_unit)} +
+                                {Number(
+                                  (Number(n.loss_pct) * 100).toFixed(2),
+                                )}
+                                %)
+                              </span>
+                            )}
                           </TableCell>
                           <TableCell
                             className={
@@ -634,11 +659,14 @@ export default function ProductionPage() {
                 </Table>
               </div>
               <p className="text-xs text-muted-foreground">
-                Олгох шаардлагатай = хэрэгцээ − цехийн үлдэгдэл (сүүлчийн
-                тоолсон өдрийн) − олгосон. «Материал олгох» энэ хэмжээгээр
-                зарлагын ноорог үүсгэнэ — нярав бодит тоогоо засаад батлахад
-                агуулахын үлдэгдлээс хасагдана. Улаан = агуулахын үлдэгдэл
-                хүрэлцэхгүй.
+                Агуулахаас авах = цэвэр хэрэгцээ × (1 + материалын хорогдол).
+                Олгох шаардлагатай = агуулахаас авах − цехийн үлдэгдэл
+                (сүүлчийн тоолсон өдрийн) − олгосон. «Материал олгох» энэ
+                хэмжээгээр зарлагын ноорог үүсгэнэ — нярав бодит тоогоо засаад
+                батлахад агуулахын үлдэгдлээс хасагдана. Улаан = агуулахын
+                үлдэгдэл хүрэлцэхгүй. Бэлдэцийн (Жэюүг мах г.м.) цехийн
+                үлдэгдэл жороороо түүхий эдийн хэрэгцээнээс аль хэдийн
+                хасагдсан.
               </p>
             </>
           )}

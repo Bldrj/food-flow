@@ -48,7 +48,7 @@ type BatchRow = {
 
 type OrderTotal = { product_id: string; total_qty: number }
 
-type NeedRow = { material_id: string; brutto_need: number }
+type NeedRow = { material_id: string; issue_need: number }
 
 type BalanceRow = {
   material_id: string
@@ -147,7 +147,7 @@ export default function HomePage() {
         .eq("production_date", date),
       supabase
         .from("daily_material_needs")
-        .select("material_id, brutto_need")
+        .select("material_id, issue_need")
         .eq("production_date", date),
       supabase
         .from("daily_issued_totals")
@@ -231,10 +231,10 @@ export default function HomePage() {
   // --- Материал ---
   const balanceById = new Map(balances.map((b) => [b.material_id, b.balance]))
   const underIssued = needs.filter(
-    (n) => n.brutto_need - (issued.get(n.material_id) ?? 0) > 0,
+    (n) => n.issue_need - (issued.get(n.material_id) ?? 0) > 0,
   )
   const insufficient = needs.filter((n) => {
-    const rem = Math.max(n.brutto_need - (issued.get(n.material_id) ?? 0), 0)
+    const rem = Math.max(n.issue_need - (issued.get(n.material_id) ?? 0), 0)
     return rem > 0 && (balanceById.get(n.material_id) ?? 0) < rem
   })
   const negativeStock = balances.filter((b) => b.balance < 0)

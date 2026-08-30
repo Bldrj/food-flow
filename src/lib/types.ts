@@ -41,6 +41,16 @@ export type MaterialCategoryNode = {
   updated_at: string
 }
 
+// Материалын төрөл (migration 0026): түүхий эд агуулахаас олгогдоно;
+// бэлдэц (Жэюүг мах, Цуйван…) source_station цехэд үйлдвэрлэгдэж
+// ledger-т бүртгэгдэхгүй — цехийн тооллого/урсгалд л оролцоно
+export type MaterialKind = "raw" | "intermediate"
+
+export const MATERIAL_KIND_LABELS: Record<MaterialKind, string> = {
+  raw: "Түүхий эд",
+  intermediate: "Бэлдэц",
+}
+
 export type Material = {
   id: string
   code: string              // системийн код MAT-001 (автомат)
@@ -49,6 +59,11 @@ export type Material = {
   base_unit: CanonicalUnit
   category_id: string | null // NULL = ангилалгүй
   min_stock: number | null
+  // Хорогдлын коэффициент (migration 0020): 0.2 = 20%. Материалд тогтмол —
+  // агуулахаас авах хэрэгцээ = Σ(цэвэр норм × порц) × (1 + loss_pct)
+  loss_pct: number
+  kind: MaterialKind // migration 0026
+  source_station: StationCode | null // бэлдэцийг үйлдвэрлэдэг цех
   is_active: boolean
   created_at: string
   updated_at: string
@@ -248,8 +263,10 @@ export type DailyMaterialNeed = {
   code: string
   name: string
   base_unit: CanonicalUnit
-  brutto_need: number // агуулахаас гаргах
-  netto_need: number // үйлдвэрлэлд орох
+  brutto_need: number // хуучин: Σ(бохир × порц) — 0020-оос хойш лавлагааны чанартай
+  netto_need: number // үйлдвэрлэлд орох цэвэр Σ
+  loss_pct: number // материалын хорогдлын коэффициент (migration 0020)
+  issue_need: number // агуулахаас авах = netto_need × (1 + loss_pct)
 }
 
 // Хүргэлт (migration 0013) — draft үе шатгүй, record_delivery RPC нэг
@@ -302,7 +319,12 @@ export type TechCardGroup = {
   id: string
   tech_card_id: string
   name: string // «Үндсэн орц», «Соус» гэх мэт
-  station: StationCode | null // бүлгийг хийх цех; NULL = хуваарилагдаагүй
+  // Бүлгийн гарц (migration 0026): энэ бүлгийн мөрүүд нийлж ямар бэлдэц
+  // болдог вэ + тухайн хоолны 1 порцод ноогдох гарц (base_unit-ээр).
+  // Гарц зарласан бүлгийн мөрүүд шууд хэрэгцээ/station_work-оос хасагдаж,
+  // бэлдэцийн нийт эрэлтээс (бүх хэрэглэгч хоолны Σ − үлдэгдэл) бодогдоно
+  output_material_id: string | null
+  output_qty_per_portion: number | null
   sort_order: number
   created_at: string
 }
@@ -313,8 +335,10 @@ export type TechCardItem = {
   material_id: string
   brutto_qty: number // агуулахаас авах, base_unit-ээр
   netto_qty: number // үйлдвэрлэлд орох, base_unit-ээр (≤ brutto)
-  // Дамжлагын зам (дараалалтай, migration 0015).
-  // NULL = default зам [бүлгийн цех, савлагаа]
+  // Дамжлагын зам (дараалалтай, migration 0015). Нэг материал хэдэн ч
+  // цехээр дамжиж болно. NULL = зам хараахан тодорхойлогдоогүй — тухайн
+  // мөр аль ч цехийн дэлгэцэд гарахгүй (0030-аас өмнө бүлгийн цехээс
+  // уламжилдаг байсныг больсон)
   stations: StationCode[] | null
   sort_order: number
   created_at: string
@@ -371,6 +395,95 @@ export type StationWorkRow = {
   item_sort: number
   qty: number
   station: StationCode
+}
+
+// station_intermediate_work view-ийн мөр (migration 0026): бэлдэцийн өдрийн
+// ажил цехээр. component_id NULL = гарцын мөр («гаргаж өгөх», source цех
+// дээр); бусад = жорын орц замынхаа цех бүр дээр. qty аль хэдийн цэвэр
+// эрэлтээс (эрэлт − үлдэгдэл) бодогдсон
+export type StationIntermediateRow = {
+  production_date: string
+  station: StationCode | null
+  intermediate_id: string
+  intermediate_name: string
+  intermediate_unit: CanonicalUnit
+  component_id: string | null
+  component_name: string | null
+  component_unit: CanonicalUnit | null
+  gross_qty: number
+  leftover_qty: number
+  net_qty: number
+  qty: number
+  sort_order: number
+}
+
+// Цехийн материалын нэхэмжлэл (migration 0022, 0032-т шинэчлэгдсэн): дутуу
+// эсвэл асуудалтай бараатай үед үүсдэг дохиолол. 0032-оос хойш БҮХ нэхэмжлэл
+// шууд няравт очно (target='warehouse'); бараа нь deliver_station цехэд
+// олгогдоно. Бэлдэц нэхэмжлэхэд жорынхоо орцоор задарна: эцэг мөр (бэлдэц
+// өөрөө, зарлагад орохгүй) + parent_request_id-аар холбогдсон хүү мөрүүд
+// (орц бүр, deliver_station = бэлдэцийн source цех). Зарлагын баримт
+// батлагдахад RPC хүү/энгийн мөрүүдийг, дараа нь бүх хүү нь биелсэн эцгийг
+// хаана; reason='defect' мөрийн хэмжээ цехийн waste тоололд нэмэгдэнэ.
+export type RequestStatus = "pending" | "fulfilled" | "cancelled"
+
+export const REQUEST_STATUS_LABELS: Record<RequestStatus, string> = {
+  pending: "Хүлээгдэж буй",
+  fulfilled: "Өгсөн",
+  cancelled: "Цуцалсан",
+}
+
+export type RequestTarget = "warehouse" | StationCode
+
+export const REQUEST_TARGET_LABELS: Record<RequestTarget, string> = {
+  warehouse: "Агуулах",
+  ...STATION_LABELS,
+}
+
+export type RequestReason = "shortage" | "defect"
+
+export const REQUEST_REASON_LABELS: Record<RequestReason, string> = {
+  shortage: "Дутуу",
+  defect: "Асуудалтай бараа",
+}
+
+export type MaterialRequest = {
+  id: string
+  request_date: string
+  station: StationCode // нэхэмжилсэн цех
+  material_id: string
+  qty: number // base_unit-ээр
+  target: RequestTarget
+  status: RequestStatus
+  reason: RequestReason
+  deliver_station: StationCode | null // барааг хүлээн авах цех
+  parent_request_id: string | null // бэлдэцийн задаргааны эцэг мөр
+  note: string | null
+  requested_by: string | null
+  fulfilled_by: string | null
+  fulfilled_at: string | null
+  stock_issue_id: string | null // агуулахын биелүүлж буй зарлага
+  created_at: string
+  updated_at: string
+}
+
+// Цех хоорондын шилжилт (migration 0028): нэг талын хөнгөн бүртгэл — өгсөн
+// цех дүнгээ (нормоос илүү ч байж болно) бүртгэнэ, хүлээн авагчийн ✓
+// сонголттой. Тооцооны эх сурвалж БИШ (маргаашийн хасалт үлдэгдэл
+// тооллогоос хэвээр) — «ирсэн vs норм vs зөрүү» хяналтад л ашиглагдана.
+export type StationTransfer = {
+  id: string
+  transfer_date: string
+  from_station: StationCode
+  to_station: StationCode
+  material_id: string
+  qty: number // base_unit-ээр
+  note: string | null
+  given_by: string | null
+  received_by: string | null
+  received_at: string | null
+  created_at: string
+  updated_at: string
 }
 
 export type GoodsReceiptItem = {

@@ -120,6 +120,41 @@ export default function InventoryReportPage() {
     load()
   }, [load])
 
+  // Горим солиход тухайн горимд утгатай хамгийн сүүлийн огноог автоматаар
+  // сонгоно: олголт → сүүлийн олголттой өдөр, үлдэгдэл → сүүлийн тооллогын
+  // өдөр (батлагдсан ч үйлдвэрлэх огноо нь өөр өдрийн зарлага төөрөгдүүлдэг)
+  async function switchMode(m: "leftover" | "issued") {
+    setMode(m)
+    const { data } =
+      m === "issued"
+        ? await supabase
+            .from("daily_station_issued")
+            .select("production_date")
+            .lte("production_date", today())
+            .order("production_date", { ascending: false })
+            .limit(1)
+        : await supabase
+            .from("station_stock_counts")
+            .select("date")
+            .eq("type", "leftover")
+            .lte("date", today())
+            .order("date", { ascending: false })
+            .limit(1)
+    const row = data?.[0] as
+      | { production_date?: string; date?: string }
+      | undefined
+    const latest = row?.production_date ?? row?.date
+    if (latest) setDate(latest)
+  }
+
+  // Тооллогын горимд аль цех тухайн өдөр огт тоолоогүйг ялгана — хоосон
+  // багана «үлдэгдэлгүй» биш «тоолоогүй» байж болно (олголт харагдахгүйн
+  // гол шалтгаан)
+  const countedStations = React.useMemo(
+    () => new Set(counts.map((c) => c.station)),
+    [counts],
+  )
+
   const rows: Row[] = React.useMemo(() => {
     const byId = new Map<string, Row>()
     for (const b of balances) {
@@ -180,7 +215,7 @@ export default function InventoryReportPage() {
               issued: "Өдрийн олголт",
             }}
             value={mode}
-            onValueChange={(v) => setMode(v as "leftover" | "issued")}
+            onValueChange={(v) => switchMode(v as "leftover" | "issued")}
           >
             <SelectTrigger className="w-44">
               <SelectValue />
@@ -223,11 +258,17 @@ export default function InventoryReportPage() {
           <Table>
             <TableHeader>
               <TableRow>
+                <TableHead className="w-12 text-right">№</TableHead>
                 <TableHead>Материал</TableHead>
                 <TableHead className="w-28 text-right">Агуулах</TableHead>
                 {STATIONS.map((st) => (
                   <TableHead key={st} className="w-28 text-right">
                     {STATION_LABELS[st]}
+                    {mode === "leftover" && !countedStations.has(st) && (
+                      <span className="block text-[10px] font-normal text-amber-600">
+                        тоолоогүй
+                      </span>
+                    )}
                   </TableHead>
                 ))}
                 <TableHead className="w-28 text-right">Нийт</TableHead>
@@ -237,19 +278,22 @@ export default function InventoryReportPage() {
               {filtered.length === 0 ? (
                 <TableRow>
                   <TableCell
-                    colSpan={7}
+                    colSpan={8}
                     className="h-24 text-center text-muted-foreground"
                   >
                     Илэрц олдсонгүй
                   </TableCell>
                 </TableRow>
               ) : (
-                filtered.map((r) => {
+                filtered.map((r, i) => {
                   const total =
                     r.warehouse +
                     STATIONS.reduce((s, st) => s + r.stations[st], 0)
                   return (
                     <TableRow key={r.material_id}>
+                      <TableCell className="text-right font-mono text-xs text-muted-foreground">
+                        {i + 1}
+                      </TableCell>
                       <TableCell className="font-medium">
                         {r.name}{" "}
                         <span className="font-mono text-xs text-muted-foreground">

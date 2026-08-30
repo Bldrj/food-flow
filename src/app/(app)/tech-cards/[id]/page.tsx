@@ -55,6 +55,7 @@ type ItemRow = TechCardItem & {
     code: string
     name: string
     base_unit: CanonicalUnit
+    loss_pct: number
   } | null
 }
 
@@ -83,24 +84,18 @@ function formatItemQty(qty: number, baseUnit: CanonicalUnit): string {
   return `${fmt(qty)} ${BASE_UNIT_LABELS[baseUnit]}`
 }
 
+// Хорогдол материалын шинж чанар (materials.loss_pct, 0020) болсон тул
+// ТК-д зөвхөн ЦЭВЭР норм оруулна — бохирыг систем тооцно
 type ItemForm = {
   material_id: string
   unit: string
-  brutto: string
-  netto: string
+  qty: string // цэвэр норм (1 порц)
 }
 
 const EMPTY_ITEM_FORM: ItemForm = {
   material_id: "",
   unit: "",
-  brutto: "",
-  netto: "",
-}
-
-// Бүлгийн цехийн сонголт («none» = хуваарилагдаагүй)
-const GROUP_STATION_ITEMS: Record<string, string> = {
-  none: "Цех: —",
-  ...STATION_LABELS,
+  qty: "",
 }
 
 // Замын цехүүдын каноник дараалал (гал тогооны урсгалын дагуу)
@@ -111,14 +106,6 @@ const STATION_SHORT: Record<StationCode, string> = {
   hot_aux: "ХТ",
   hot: "Ха",
   packaging: "Са",
-}
-
-/** Мөрийн default зам: [бүлгийн цех, савлагаа]; бүлэг цехгүй бол null */
-function derivedRoute(group: TechCardGroup): StationCode[] | null {
-  if (!group.station) return null
-  return group.station === "packaging"
-    ? ["packaging"]
-    : [group.station, "packaging"]
 }
 
 export default function TechCardDetailPage() {
@@ -142,6 +129,14 @@ export default function TechCardDetailPage() {
   const [newGroupName, setNewGroupName] = React.useState("")
   const [itemForms, setItemForms] = React.useState<Record<string, ItemForm>>({})
   const [versioning, setVersioning] = React.useState(false)
+  // Бүлгийн гарц (0026): сонгосон бэлдэц + 1 порцод ноогдох гарцын хэмжээ.
+  // DB-д хоёулаа хамт (эсвэл хоёулаа NULL) хадгалагддаг тул хэмжээ
+  // зөв болтол зөвхөн локал төлөвт байна
+  const [outputSel, setOutputSel] = React.useState<Record<string, string>>({})
+  const [outputQty, setOutputQty] = React.useState<Record<string, string>>({})
+  // Нормыг мөрөн дээр нь шууд засах — кг/л материалд гр/мл-ээр (ТК-ийн
+  // бичилтийн заншил), ш хэвээр
+  const [editNorms, setEditNorms] = React.useState<Record<string, string>>({})
 
   const load = React.useCallback(async () => {
     const [cardRes, groupsRes] = await Promise.all([
@@ -153,7 +148,7 @@ export default function TechCardDetailPage() {
       supabase
         .from("tech_card_groups")
         .select(
-          "*, items:tech_card_items(*, material:materials(id, code, name, base_unit))",
+          "*, items:tech_card_items(*, material:materials(id, code, name, base_unit, loss_pct))",
         )
         .eq("tech_card_id", params.id)
         .order("sort_order"),
@@ -170,6 +165,25 @@ export default function TechCardDetailPage() {
     const gs = (groupsRes.data ?? []) as GroupRow[]
     gs.forEach((g) => g.items.sort((a, b) => a.sort_order - b.sort_order))
     setGroups(gs)
+    setOutputSel(
+      Object.fromEntries(
+        gs.map((g) => [g.id, g.output_material_id ?? "none"]),
+      ),
+    )
+    setEditNorms(
+      Object.fromEntries(
+        gs.flatMap((g) =>
+          g.items.map((i) => {
+            const unit = i.material?.base_unit
+            const v =
+              unit === "kg" || unit === "l"
+                ? Number((i.netto_qty * 1000).toFixed(3))
+                : Number(i.netto_qty)
+            return [i.id, String(v)]
+          }),
+        ),
+      ),
+    )
     setLoading(false)
   }, [supabase, params.id])
 
@@ -188,6 +202,52 @@ export default function TechCardDetailPage() {
     }
     loadMaterials()
   }, [supabase])
+
+  // Гарцын хэмжээний оролтыг бэлдэцийн нэгжээр (кг/л → гр/мл) бөглөнө —
+  // материалын жагсаалт ирсний дараа л нэгж нь мэдэгдэнэ
+  React.useEffect(() => {
+    if (materials.length === 0) return
+    setOutputQty(
+      Object.fromEntries(
+        groups.map((g) => {
+          if (g.output_qty_per_portion === null) return [g.id, ""]
+          const unit = materials.find(
+            (m) => m.id === g.output_material_id,
+          )?.base_unit
+          const v =
+            unit === "kg" || unit === "l"
+              ? Number((g.output_qty_per_portion * 1000).toFixed(3))
+              : Number(g.output_qty_per_portion)
+          return [g.id, String(v)]
+        }),
+      ),
+    )
+  }, [groups, materials])
+
+  /** Бүлгийн гарц бэлдэц бэлэн болох цех (жорын бүлгийн замын 2 дахь алхам) */
+  function outputSourceOf(group: TechCardGroup): StationCode | null {
+    if (!group.output_material_id) return null
+    return (
+      materials.find((m) => m.id === group.output_material_id)
+        ?.source_station ?? null
+    )
+  }
+
+  /** Бэлдэц бүтнээрээ очих цехүүд — энэ картын өөр бүлгүүд түүнийг
+   *  орцоороо хэрэглэдэг бол тэдгээрийн зам. Орц тус бүр биш, нийлсэн
+   *  бэлдэц л энэ замаар явна */
+  function outputConsumersOf(group: GroupRow): StationCode[] {
+    if (!group.output_material_id) return []
+    const set = new Set<StationCode>()
+    for (const g of groups) {
+      if (g.id === group.id) continue
+      for (const it of g.items) {
+        if (it.material_id !== group.output_material_id) continue
+        ;(it.stations ?? []).forEach((s) => set.add(s))
+      }
+    }
+    return CANONICAL_STATIONS.filter((s) => set.has(s))
+  }
 
   async function saveHeader() {
     if (!card) return
@@ -237,11 +297,26 @@ export default function TechCardDetailPage() {
     load()
   }
 
-  async function setGroupStation(group: GroupRow, value: string) {
+  // Замын chip дарахад тухайн цехыг нэмж/хасна. Зам нь мөрийн цорын ганц
+  // эх сурвалж — нэг материал хэдэн ч цехээр дамжиж болно (0030)
+  async function toggleItemStation(
+    group: GroupRow,
+    item: ItemRow,
+    station: StationCode,
+  ) {
+    const effective = item.stations ?? []
+    const next = effective.includes(station)
+      ? effective.filter((s) => s !== station)
+      : [...effective, station]
+    // Жорын бүлгийн орц савлагаанд ордоггүй — хуучин өгөгдөл байвал цэвэрлэнэ
+    const sorted = CANONICAL_STATIONS.filter(
+      (s) =>
+        next.includes(s) && (!group.output_material_id || s !== "packaging"),
+    )
     const { error } = await supabase
-      .from("tech_card_groups")
-      .update({ station: value === "none" ? null : value })
-      .eq("id", group.id)
+      .from("tech_card_items")
+      .update({ stations: sorted.length > 0 ? sorted : null })
+      .eq("id", item.id)
     if (error) {
       setActionError(error.message)
       return
@@ -249,30 +324,33 @@ export default function TechCardDetailPage() {
     load()
   }
 
-  // Замын chip дарахад тухайн цехыг нэмж/хасна. Үр дүн default замтай
-  // тэнцвэл NULL хадгална (бүлгийн цех солигдоход дагаж өөрчлөгдөнө)
-  async function toggleItemStation(
-    group: GroupRow,
-    item: ItemRow,
-    station: StationCode,
-  ) {
-    const effective = item.stations ?? derivedRoute(group) ?? []
-    const next = effective.includes(station)
-      ? effective.filter((s) => s !== station)
-      : [...effective, station]
-    const sorted = CANONICAL_STATIONS.filter((s) => next.includes(s))
-    const def = derivedRoute(group)
-    const value =
-      def !== null && sorted.join(",") === def.join(",") ? null : sorted
-    const { error } = await supabase
-      .from("tech_card_items")
-      .update({ stations: value })
-      .eq("id", item.id)
-    if (error) {
-      setActionError(error.message)
+  // Бүлгийн гарцыг хадгална: бэлдэц + хэмжээ хоёул бөглөгдсөн үед л DB-д
+  // бичнэ (0026-ийн check: хоёулаа хамт эсвэл хоёулаа NULL)
+  async function saveGroupOutput(group: GroupRow, sel: string, qtyStr: string) {
+    if (sel === "none") {
+      const { error } = await supabase
+        .from("tech_card_groups")
+        .update({ output_material_id: null, output_qty_per_portion: null })
+        .eq("id", group.id)
+      if (error) setActionError(error.message)
+      else load()
       return
     }
-    load()
+    const mat = materials.find((m) => m.id === sel)
+    const raw = Number(qtyStr.trim())
+    if (!mat || !Number.isFinite(raw) || raw <= 0) return // хэмжээгээ хүлээнэ
+    const stored = Number(
+      (mat.base_unit === "kg" || mat.base_unit === "l"
+        ? raw / 1000
+        : raw
+      ).toFixed(6),
+    )
+    const { error } = await supabase
+      .from("tech_card_groups")
+      .update({ output_material_id: sel, output_qty_per_portion: stored })
+      .eq("id", group.id)
+    if (error) setActionError(error.message)
+    else load()
   }
 
   async function removeGroup(group: GroupRow) {
@@ -312,28 +390,21 @@ export default function TechCardDetailPage() {
     }
     const rate =
       INPUT_UNITS[mat.base_unit].find((u) => u.unit === form.unit)?.rate ?? 1
-    const brutto = Number(form.brutto)
-    if (!Number.isFinite(brutto) || brutto <= 0) {
-      setActionError("Бохир жин 0-ээс их байх ёстой")
-      return
-    }
-    // Цэвэр хоосон бол бохиртой тэнцүү (хаягдалгүй орц)
-    const netto = form.netto.trim() === "" ? brutto : Number(form.netto)
-    if (!Number.isFinite(netto) || netto <= 0) {
-      setActionError("Цэвэр жин 0-ээс их байх ёстой")
-      return
-    }
-    if (netto > brutto) {
-      setActionError("Цэвэр жин бохир жингээс их байж болохгүй")
+    const qty = Number(form.qty)
+    if (!Number.isFinite(qty) || qty <= 0) {
+      setActionError("Норм 0-ээс их байх ёстой")
       return
     }
     setActionError(null)
     const maxSort = Math.max(0, ...group.items.map((i) => i.sort_order))
+    // Цэвэр норм л хадгална; бохир = цэвэр (хорогдол materials.loss_pct-ээс
+    // агуулахын тооцоонд автоматаар нэмэгдэнэ — 0020)
+    const stored = Number((qty * rate).toFixed(6))
     const { error } = await supabase.from("tech_card_items").insert({
       group_id: group.id,
       material_id: mat.id,
-      brutto_qty: Number((brutto * rate).toFixed(6)),
-      netto_qty: Number((netto * rate).toFixed(6)),
+      brutto_qty: stored,
+      netto_qty: stored,
       sort_order: maxSort + 1,
     })
     if (error) {
@@ -341,6 +412,44 @@ export default function TechCardDetailPage() {
       return
     }
     setItemForms((forms) => ({ ...forms, [group.id]: EMPTY_ITEM_FORM }))
+    load()
+  }
+
+  // Мөрөн дээрх нормыг blur/Enter дээр хадгална: гр/мл оролтыг base_unit
+  // (кг/л) руу хөрвүүлж, бохир=цэвэр гэж бичнэ (хорогдол materials.loss_pct-ээс)
+  async function saveItemNorm(item: ItemRow) {
+    const unit = item.material?.base_unit
+    const raw = Number((editNorms[item.id] ?? "").trim())
+    const restore = () =>
+      setEditNorms((q) => ({
+        ...q,
+        [item.id]: String(
+          unit === "kg" || unit === "l"
+            ? Number((item.netto_qty * 1000).toFixed(3))
+            : Number(item.netto_qty),
+        ),
+      }))
+    if (!Number.isFinite(raw) || raw <= 0) {
+      setActionError(
+        `${item.material?.name ?? "Мөр"}: норм 0-ээс их байх ёстой`,
+      )
+      restore()
+      return
+    }
+    const stored = Number(
+      (unit === "kg" || unit === "l" ? raw / 1000 : raw).toFixed(6),
+    )
+    if (stored === Number(item.netto_qty)) return
+    const { error } = await supabase
+      .from("tech_card_items")
+      .update({ netto_qty: stored, brutto_qty: stored })
+      .eq("id", item.id)
+    if (error) {
+      setActionError(error.message)
+      restore()
+      return
+    }
+    setActionError(null)
     load()
   }
 
@@ -396,7 +505,8 @@ export default function TechCardDetailPage() {
           .insert({
             tech_card_id: newCard.id,
             name: g.name,
-            station: g.station,
+            output_material_id: g.output_material_id,
+            output_qty_per_portion: g.output_qty_per_portion,
             sort_order: g.sort_order,
           })
           .select("id")
@@ -596,37 +706,113 @@ export default function TechCardDetailPage() {
         const form = getForm(group.id)
         const mat = materials.find((m) => m.id === form.material_id)
         const units = mat ? INPUT_UNITS[mat.base_unit] : []
+        const intermediates = materials.filter(
+          (m) => m.kind === "intermediate",
+        )
+        const outSel = outputSel[group.id] ?? group.output_material_id ?? "none"
+        const outMat = materials.find((m) => m.id === outSel)
+        // Жорын бүлэгт орцын зам бэлдэц бэлэн болох цехэд дуусах ёстой —
+        // өөр цехэд дуусвал тэр цех орцоо хүлээж авахгүй, гарц нь өөр цехэд
+        // гарч зөрчил үүснэ
+        const outSource = outputSourceOf(group)
+        const outConsumers = outputConsumersOf(group)
+        const routeWarning =
+          group.output_material_id && outSource
+            ? group.items.some((item) => {
+                const eff = item.stations ?? []
+                return eff.length > 0 && eff[eff.length - 1] !== outSource
+              })
+            : false
+        const outUnitLabel =
+          outMat?.base_unit === "l"
+            ? "мл"
+            : outMat?.base_unit === "pcs"
+              ? "ш"
+              : "гр"
         return (
           <div key={group.id} className="rounded-lg border">
-            <div className="flex items-center justify-between gap-2 border-b px-4 py-3">
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b px-4 py-3">
               <p className="font-medium">{group.name}</p>
-              <div className="flex items-center gap-2">
-                {/* Бүлгийг хийх цех — цехийн дэлгэцийн хуваарилалт */}
-                <Select
-                  items={GROUP_STATION_ITEMS}
-                  value={group.station ?? "none"}
-                  onValueChange={(v) => setGroupStation(group, v as string)}
-                >
-                  <SelectTrigger
-                    className={
-                      group.station
-                        ? "h-8 w-40"
-                        : "h-8 w-40 border-amber-500/50 text-amber-600"
-                    }
-                  >
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="none">Цех: —</SelectItem>
-                    {(
-                      Object.keys(STATION_LABELS) as StationCode[]
-                    ).map((s) => (
-                      <SelectItem key={s} value={s}>
-                        {STATION_LABELS[s]}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+              <div className="flex flex-wrap items-center gap-2">
+                {/* Бүлгийн гарц (0026): мөрүүд нийлж ямар бэлдэц болох вэ.
+                    Сонгосон үед энэ бүлэг тухайн бэлдэцийн ЖОР болж, ажил нь
+                    бэлдэцийн нийт эрэлтээс (бүх хоолны Σ − үлдэгдэл) бодогдоно */}
+                {intermediates.length > 0 && (
+                  <>
+                    <Select
+                      items={{
+                        none: "Гарц: —",
+                        ...Object.fromEntries(
+                          intermediates.map((m) => [m.id, m.name]),
+                        ),
+                      }}
+                      value={outSel}
+                      onValueChange={(v) => {
+                        const sel = v as string
+                        setOutputSel((s) => ({ ...s, [group.id]: sel }))
+                        saveGroupOutput(group, sel, outputQty[group.id] ?? "")
+                      }}
+                    >
+                      <SelectTrigger className="h-8 w-44">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="none">Гарц: —</SelectItem>
+                        {intermediates.map((m) => (
+                          <SelectItem key={m.id} value={m.id}>
+                            {m.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    {outSel !== "none" && (
+                      <div className="flex items-center gap-1">
+                        <Input
+                          type="number"
+                          min="0"
+                          step="any"
+                          placeholder="140"
+                          className="h-8 w-20"
+                          value={outputQty[group.id] ?? ""}
+                          onChange={(e) =>
+                            setOutputQty((q) => ({
+                              ...q,
+                              [group.id]: e.target.value,
+                            }))
+                          }
+                          onBlur={() =>
+                            saveGroupOutput(
+                              group,
+                              outSel,
+                              outputQty[group.id] ?? "",
+                            )
+                          }
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter")
+                              (e.target as HTMLInputElement).blur()
+                          }}
+                        />
+                        <span className="text-xs text-muted-foreground">
+                          {outUnitLabel}/порц
+                        </span>
+                        {/* Бэлдэцийн урсгал: хаана бэлэн болж, цааш хаашаа
+                            бүтнээрээ очих вэ */}
+                        {outMat?.source_station && (
+                          <span
+                            className="rounded-md bg-secondary px-1.5 py-0.5 text-xs text-secondary-foreground"
+                            title="Бэлдэц эхний цехэд бэлэн болж, дараагийн цех рүү бүтнээрээ очно"
+                          >
+                            {STATION_LABELS[outMat.source_station]}
+                            {outConsumers.length > 0 &&
+                              ` → ${outConsumers
+                                .map((s) => STATION_LABELS[s])
+                                .join(", ")}`}
+                          </span>
+                        )}
+                      </div>
+                    )}
+                  </>
+                )}
                 <Button
                   variant="ghost"
                   size="icon-sm"
@@ -637,13 +823,35 @@ export default function TechCardDetailPage() {
                 </Button>
               </div>
             </div>
+            {/* Жорын бүлэгт орцын дамжлага яагаад бэлдэц болох цехээрээ
+                дуусдгийг тайлбарлана — цааш нь орц тус бүрээр биш, нийлсэн
+                бэлдэц бүтнээрээ явна */}
+            {group.output_material_id && outSource && !routeWarning && (
+              <p className="text-muted-foreground border-b px-4 py-2 text-xs">
+                Эдгээр орц {STATION_LABELS[outSource]} цехэд нийлж «
+                {outMat?.name}» болно
+                {outConsumers.length > 0 &&
+                  ` — цааш ${outConsumers
+                    .map((s) => STATION_LABELS[s])
+                    .join(", ")} руу бүтнээрээ очно`}
+                . Тиймээс дамжлага {STATION_LABELS[outSource]} цехээр дуусаж,
+                орц тус бүрд цаашдын цехийг заахгүй.
+              </p>
+            )}
+            {routeWarning && outSource && (
+              <p className="border-b bg-amber-500/10 px-4 py-2 text-sm text-amber-700">
+                Орцын дамжлага {STATION_LABELS[outSource]} цехэд дуусах ёстой —
+                «{outMat?.name}» бэлдэц тэнд бэлэн болдог. Одоо орцууд өөр
+                цехэд дуусаж байгаа тул {STATION_LABELS[outSource]} цех орцоо
+                хүлээж авахгүй.
+              </p>
+            )}
             <Table>
               <TableHeader>
                 <TableRow>
                   <TableHead>Материал</TableHead>
-                  <TableHead className="w-32">Бохир (агуулахаас)</TableHead>
-                  <TableHead className="w-32">Цэвэр (хоолонд)</TableHead>
-                  <TableHead className="w-24">Хаягдал</TableHead>
+                  <TableHead className="w-36">Норм (цэвэр, 1 порц)</TableHead>
+                  <TableHead className="w-32">Хорогдол</TableHead>
                   <TableHead className="w-44">Дамжлага</TableHead>
                   <TableHead className="w-10" />
                 </TableRow>
@@ -652,7 +860,7 @@ export default function TechCardDetailPage() {
                 {group.items.length === 0 ? (
                   <TableRow>
                     <TableCell
-                      colSpan={6}
+                      colSpan={5}
                       className="h-12 text-center text-muted-foreground"
                     >
                       Орц нэмээгүй байна
@@ -660,12 +868,8 @@ export default function TechCardDetailPage() {
                   </TableRow>
                 ) : (
                   group.items.map((item) => {
-                    const waste =
-                      item.brutto_qty > 0
-                        ? ((item.brutto_qty - item.netto_qty) /
-                            item.brutto_qty) *
-                          100
-                        : 0
+                    // Хорогдол материалын тогтмол шинж (materials.loss_pct)
+                    const loss = Number(item.material?.loss_pct ?? 0)
                     return (
                       <TableRow key={item.id}>
                         <TableCell className="font-medium">
@@ -675,34 +879,68 @@ export default function TechCardDetailPage() {
                           </span>
                         </TableCell>
                         <TableCell>
-                          {item.material
-                            ? formatItemQty(
-                                item.brutto_qty,
-                                item.material.base_unit,
-                              )
-                            : item.brutto_qty}
-                        </TableCell>
-                        <TableCell>
-                          {item.material
-                            ? formatItemQty(
-                                item.netto_qty,
-                                item.material.base_unit,
-                              )
-                            : item.netto_qty}
+                          <div className="flex items-center gap-1">
+                            <Input
+                              type="number"
+                              min="0"
+                              step="any"
+                              className="h-8 w-24"
+                              value={editNorms[item.id] ?? ""}
+                              onChange={(e) =>
+                                setEditNorms((q) => ({
+                                  ...q,
+                                  [item.id]: e.target.value,
+                                }))
+                              }
+                              onBlur={() => saveItemNorm(item)}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter")
+                                  (e.target as HTMLInputElement).blur()
+                              }}
+                            />
+                            <span className="text-xs text-muted-foreground">
+                              {item.material?.base_unit === "kg"
+                                ? "гр"
+                                : item.material?.base_unit === "l"
+                                  ? "мл"
+                                  : "ш"}
+                            </span>
+                          </div>
                         </TableCell>
                         <TableCell className="text-muted-foreground">
-                          {waste > 0 ? `${waste.toFixed(1)}%` : "—"}
+                          {loss > 0 ? (
+                            <>
+                              {Number((loss * 100).toFixed(2))}%
+                              {item.material && (
+                                <span className="ml-1 text-xs">
+                                  (агуулахаас{" "}
+                                  {formatItemQty(
+                                    item.netto_qty * (1 + loss),
+                                    item.material.base_unit,
+                                  )}
+                                  )
+                                </span>
+                              )}
+                            </>
+                          ) : (
+                            "—"
+                          )}
                         </TableCell>
                         <TableCell>
-                          {/* Замын chip-үүд: дарж цех нэмж/хасна.
-                              Бүдэг = бүлгээс уламжилсан default зам */}
+                          {/* Замын chip-үүд: дарж цех нэмж/хасна. Нэг
+                              материал хэдэн ч цехээр дамжиж болно */}
                           {(() => {
-                            const effective =
-                              item.stations ?? derivedRoute(group) ?? []
-                            const isDerived = item.stations === null
+                            const effective = item.stations ?? []
                             return (
                               <div className="flex gap-1">
-                                {CANONICAL_STATIONS.map((s) => {
+                                {/* Жорын бүлгийн орц савлагаа руу явдаггүй —
+                                    бэлэн болсон бэлдэц нь очно. Тиймээс тэр
+                                    сонголтыг огт үзүүлэхгүй */}
+                                {CANONICAL_STATIONS.filter(
+                                  (s) =>
+                                    !group.output_material_id ||
+                                    s !== "packaging",
+                                ).map((s) => {
                                   const on = effective.includes(s)
                                   return (
                                     <button
@@ -714,9 +952,7 @@ export default function TechCardDetailPage() {
                                       }
                                       className={
                                         on
-                                          ? isDerived
-                                            ? "rounded-md border border-transparent bg-secondary px-1.5 py-0.5 text-xs text-secondary-foreground/60"
-                                            : "rounded-md border border-transparent bg-secondary px-1.5 py-0.5 text-xs font-medium text-secondary-foreground"
+                                          ? "rounded-md border border-transparent bg-secondary px-1.5 py-0.5 text-xs font-medium text-secondary-foreground"
                                           : "rounded-md border border-dashed border-input px-1.5 py-0.5 text-xs text-muted-foreground/50 hover:text-muted-foreground"
                                       }
                                     >
@@ -745,7 +981,7 @@ export default function TechCardDetailPage() {
               </TableBody>
             </Table>
             {/* Орц нэмэх мөр */}
-            <div className="grid gap-2 border-t p-3 sm:grid-cols-[1fr_7rem_6rem_6rem_auto]">
+            <div className="grid gap-2 border-t p-3 sm:grid-cols-[1fr_7rem_6rem_auto]">
               <MaterialPicker
                 materials={materials}
                 value={form.material_id}
@@ -755,17 +991,9 @@ export default function TechCardDetailPage() {
                 type="number"
                 min="0"
                 step="any"
-                placeholder="Бохир"
-                value={form.brutto}
-                onChange={(e) => setForm(group.id, { brutto: e.target.value })}
-              />
-              <Input
-                type="number"
-                min="0"
-                step="any"
-                placeholder="Цэвэр"
-                value={form.netto}
-                onChange={(e) => setForm(group.id, { netto: e.target.value })}
+                placeholder="Норм"
+                value={form.qty}
+                onChange={(e) => setForm(group.id, { qty: e.target.value })}
               />
               <Select
                 items={Object.fromEntries(units.map((u) => [u.unit, u.unit]))}
@@ -787,9 +1015,10 @@ export default function TechCardDetailPage() {
                 <PlusIcon />
                 Нэмэх
               </Button>
-              <p className="text-xs text-muted-foreground sm:col-span-5">
-                Бохир = агуулахаас авах (хаягдалтай), цэвэр = хоолонд орох.
-                Цэвэр хоосон бол бохиртой тэнцүү гэж үзнэ. Тоо {""}
+              <p className="text-xs text-muted-foreground sm:col-span-4">
+                Цэвэр норм (хоолонд орох) оруулна — агуулахаас авах хэмжээ
+                материалын хорогдлын хувиар (/materials) автоматаар бодогдоно.
+                Тоо {""}
                 {mat
                   ? `${form.unit || INPUT_UNITS[mat.base_unit][0].unit}-ээр — хадгалахдаа ${BASE_UNIT_LABELS[mat.base_unit]} руу хөрвүүлнэ`
                   : "материал сонгосны дараа нэгжээ шалгаарай"}
