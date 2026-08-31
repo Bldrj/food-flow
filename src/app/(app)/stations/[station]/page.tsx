@@ -973,9 +973,10 @@ export default function StationPage() {
             зөвхөн дутсан үед нэхэмжлэх товч */}
         {e.components.length > 0 && (
           <div className="mt-1 grid gap-x-8 gap-y-1 sm:grid-cols-2">
-            {e.components.map((c) => (
+            {/* Нэг материал олон бүлэгт орж болох (0031) тул индексээр давхардлыг салгана */}
+            {e.components.map((c, i) => (
               <p
-                key={c.component_id}
+                key={`${c.component_id}-${i}`}
                 className="flex items-center justify-between gap-2 border-b py-1 last:border-b-0"
               >
                 <span>{c.component_name}</span>
@@ -1646,7 +1647,7 @@ export default function StationPage() {
                   </p>
                 ) : (
                   <div className="mt-1 grid gap-0.5">
-                    {reqRecipe.map((c) => {
+                    {reqRecipe.map((c, i) => {
                       const cm = materialById.get(c.component_id)
                       const raw = Number(reqForm.qty)
                       const rate =
@@ -1658,7 +1659,7 @@ export default function StationPage() {
                           : null
                       return (
                         <p
-                          key={c.component_id}
+                          key={`${c.component_id}-${i}`}
                           className="text-muted-foreground flex justify-between text-xs"
                         >
                           <span>{cm?.name ?? "—"}</span>
