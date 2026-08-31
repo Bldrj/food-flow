@@ -1,5 +1,7 @@
 import * as XLSX from "xlsx"
 
+import { toLocalDateString } from "@/lib/dev-date"
+
 export type ExcelColumn<T> = {
   /** Толгойн нэр */
   header: string
@@ -32,7 +34,7 @@ export function exportToExcel<T>(opts: {
   XLSX.writeFile(wb, fileName.endsWith(".xlsx") ? fileName : `${fileName}.xlsx`)
 }
 
-/** Файлын нэрэнд зориулсан огноо: 2026-08-18 */
+/** Файлын нэрэнд зориулсан огноо: 2026-08-18 (локал цагийн бүсээр) */
 export function todayStamp() {
-  return new Date().toISOString().slice(0, 10)
+  return toLocalDateString(new Date())
 }

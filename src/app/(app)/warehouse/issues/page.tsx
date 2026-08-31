@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation"
 
 import { createClient } from "@/lib/supabase/client"
 import { useDevUser } from "@/components/dev-user-provider"
-import { today } from "@/lib/dev-date"
+import { today, toLocalDateString } from "@/lib/dev-date"
 import { formatUnitQty } from "@/lib/format-qty"
 import {
   RECEIPT_STATUS_LABELS,
@@ -65,7 +65,7 @@ type HeaderForm = {
 function addDays(n: number): string {
   const d = new Date(today() + "T00:00:00")
   d.setDate(d.getDate() + n)
-  return d.toISOString().slice(0, 10)
+  return toLocalDateString(d)
 }
 
 const QUICK_DATES = [

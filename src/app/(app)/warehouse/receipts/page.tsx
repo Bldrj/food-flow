@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation"
 
 import { createClient } from "@/lib/supabase/client"
 import { useDevUser } from "@/components/dev-user-provider"
+import { today } from "@/lib/dev-date"
 import { RECEIPT_STATUS_LABELS, type GoodsReceipt } from "@/lib/types"
 
 import { Badge } from "@/components/ui/badge"
@@ -124,7 +125,7 @@ export default function ReceiptsPage() {
   function openCreate() {
     setHeaderForm({
       supplier_id: "",
-      receipt_date: new Date().toISOString().slice(0, 10),
+      receipt_date: today(),
       supplier_invoice_no: "",
       note: "",
     })
