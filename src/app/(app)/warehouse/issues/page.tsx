@@ -441,6 +441,7 @@ export default function StockIssuesPage() {
         <Table>
           <TableHeader>
             <TableRow>
+              <TableHead className="w-12">№</TableHead>
               <TableHead className="w-28">Баримт №</TableHead>
               <TableHead className="w-36">Үйлдвэрлэх огноо</TableHead>
               <TableHead className="w-20">Мөр</TableHead>
@@ -454,7 +455,7 @@ export default function StockIssuesPage() {
             {loading ? (
               [...Array(3)].map((_, i) => (
                 <TableRow key={i}>
-                  {[...Array(7)].map((_, j) => (
+                  {[...Array(8)].map((_, j) => (
                     <TableCell key={j}>
                       <Skeleton className="h-4 w-full" />
                     </TableCell>
@@ -464,7 +465,7 @@ export default function StockIssuesPage() {
             ) : filtered.length === 0 ? (
               <TableRow>
                 <TableCell
-                  colSpan={7}
+                  colSpan={8}
                   className="h-24 text-center text-muted-foreground"
                 >
                   {rows.length === 0
@@ -473,12 +474,15 @@ export default function StockIssuesPage() {
                 </TableCell>
               </TableRow>
             ) : (
-              filtered.map((row) => (
+              filtered.map((row, i) => (
                 <TableRow
                   key={row.id}
                   className="cursor-pointer"
                   onClick={() => router.push(`/warehouse/issues/${row.id}`)}
                 >
+                  <TableCell className="text-xs text-muted-foreground">
+                    {i + 1}
+                  </TableCell>
                   <TableCell className="font-mono text-xs">
                     {row.issue_no}
                   </TableCell>
