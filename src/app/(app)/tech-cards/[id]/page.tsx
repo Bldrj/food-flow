@@ -934,13 +934,32 @@ export default function TechCardDetailPage() {
                             return (
                               <div className="flex gap-1">
                                 {/* Жорын бүлгийн орц савлагаа руу явдаггүй —
-                                    бэлэн болсон бэлдэц нь очно. Тиймээс тэр
-                                    сонголтыг огт үзүүлэхгүй */}
-                                {CANONICAL_STATIONS.filter(
-                                  (s) =>
-                                    !group.output_material_id ||
-                                    s !== "packaging",
-                                ).map((s) => {
+                                    бэлэн болсон бэлдэц нь очно. Тиймээс
+                                    савлагааг зөвхөн харуулна, дарж өөрчлөхгүй */}
+                                {CANONICAL_STATIONS.map((s) => {
+                                  if (
+                                    group.output_material_id &&
+                                    s === "packaging"
+                                  ) {
+                                    const via = outConsumers.includes(s)
+                                    return (
+                                      <span
+                                        key={s}
+                                        title={
+                                          via
+                                            ? `«${outMat?.name}» бэлдэц бүтнээрээ савлагаанд очно — орц тус бүрээр өөрчлөхгүй`
+                                            : "Жорын бүлгийн орц савлагаанд шууд ордоггүй — бэлэн бэлдэц нь очно"
+                                        }
+                                        className={
+                                          via
+                                            ? "cursor-default rounded-md border border-transparent bg-secondary px-1.5 py-0.5 text-xs font-medium text-secondary-foreground opacity-60"
+                                            : "cursor-default rounded-md border border-dashed border-input px-1.5 py-0.5 text-xs text-muted-foreground/30"
+                                        }
+                                      >
+                                        {STATION_SHORT[s]}
+                                      </span>
+                                    )
+                                  }
                                   const on = effective.includes(s)
                                   return (
                                     <button

@@ -51,6 +51,7 @@ import {
 } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Table,
   TableBody,
@@ -371,23 +372,26 @@ export default function MaterialsPage() {
       ? null
       : categoryWithDescendants(categories, categoryFilter);
 
-  const filtered = rows.filter((r) => {
+  const q = search.trim().toLowerCase();
+  const matchesSearch = (r: Material) =>
+    !q ||
+    [r.code, r.base_code, r.name]
+      .filter(Boolean)
+      .some((v) => v!.toLowerCase().includes(q));
+
+  // Түүхий эд ба бэлдэц тусдаа таб-д харагдана. Ангиллын шүүлтүүр зөвхөн
+  // түүхий эдэд хамаатай (бэлдэц ангилалгүй) — бэлдэцийн таб зөвхөн
+  // хайлтаар шүүгдэнэ
+  const rawRows = rows.filter((r) => {
+    if (r.kind !== "raw") return false;
     if (categoryFilter === "none" && r.category_id !== null) return false;
     if (filterIds && (!r.category_id || !filterIds.has(r.category_id)))
       return false;
-    const q = search.trim().toLowerCase();
-    if (!q) return true;
-    return [r.code, r.base_code, r.name]
-      .filter(Boolean)
-      .some((v) => v!.toLowerCase().includes(q));
+    return matchesSearch(r);
   });
-
-  // Түүхий эд ба бэлдэц тусдаа хэсэгт харагдана. Ангиллын шүүлтүүр зөвхөн
-  // түүхий эдэд хамаатай (бэлдэц ангилалгүй) — сонгогдсон үед бэлдэцийн
-  // хэсгийг бүхэлд нь нууна
-  const rawRows = filtered.filter((r) => r.kind === "raw");
-  const intRows = filtered.filter((r) => r.kind === "intermediate");
-  const showIntermediates = categoryFilter === "all";
+  const intRows = rows.filter(
+    (r) => r.kind === "intermediate" && matchesSearch(r),
+  );
 
   // Select-ийн label: trigger дээр бүтэн зам, жагсаалтад догол мөртэй нэр
   const categorySelectItems: Record<string, string> = Object.fromEntries(
@@ -625,166 +629,172 @@ export default function MaterialsPage() {
         </div>
       )}
 
-      <div className="rounded-lg border">
-        <div className="border-b px-4 py-3">
-          <p className="font-medium">
+      <Tabs defaultValue="raw">
+        <TabsList>
+          <TabsTrigger value="raw">
             Түүхий эд{!loading && ` (${rawRows.length})`}
-          </p>
-        </div>
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead className="w-12">№</TableHead>
-              <TableHead className="w-24">Код</TableHead>
-              <TableHead className="w-28">Үндсэн код</TableHead>
-              <TableHead>Нэр</TableHead>
-              <TableHead className="w-28">Ангилал</TableHead>
-              <TableHead className="w-32">Цехүүд</TableHead>
-              <TableHead className="w-28">Үндсэн нэгж</TableHead>
-              <TableHead className="w-28">Хорогдол (%)</TableHead>
-              <TableHead className="w-32">Доод үлдэгдэл</TableHead>
-              <TableHead className="w-12" />
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {loading ? (
-              renderSkeleton(10)
-            ) : rawRows.length === 0 ? (
-              renderEmpty(
-                10,
-                rows.some((r) => r.kind === "raw"),
-                "Түүхий эд бүртгэгдээгүй байна",
-              )
-            ) : (
-              rawRows.map((row, i) => (
-                <TableRow
-                  key={row.id}
-                  className={row.is_active ? "" : "opacity-50"}
-                >
-                  <TableCell className="text-xs text-muted-foreground">
-                    {i + 1}
-                  </TableCell>
-                  <TableCell className="font-mono text-xs">
-                    {row.code}
-                  </TableCell>
-                  <TableCell className="font-mono text-xs">
-                    {row.base_code ?? "—"}
-                  </TableCell>
-                  <TableCell className="font-medium">{row.name}</TableCell>
-                  <TableCell>
-                    {row.category_id ? (
-                      <Badge variant="outline">
-                        {categoryPaths.get(row.category_id) ?? "?"}
-                      </Badge>
-                    ) : (
-                      <span className="text-muted-foreground">—</span>
-                    )}
-                  </TableCell>
-                  <TableCell>{renderStations(row)}</TableCell>
-                  <TableCell>{BASE_UNIT_LABELS[row.base_unit]}</TableCell>
-                  <TableCell>
-                    <Input
-                      type="number"
-                      min="0"
-                      step="any"
-                      placeholder="0"
-                      className="h-8 w-20"
-                      value={editLoss[row.id] ?? ""}
-                      onChange={(e) =>
-                        setEditLoss((q) => ({
-                          ...q,
-                          [row.id]: e.target.value,
-                        }))
-                      }
-                      onBlur={() => saveRowLoss(row)}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter")
-                          (e.target as HTMLInputElement).blur();
-                      }}
-                    />
-                  </TableCell>
-                  <TableCell>
-                    {row.min_stock === null
-                      ? "—"
-                      : formatUnitQty(row.min_stock, row.base_unit)}
-                  </TableCell>
-                  <TableCell>{renderActions(row)}</TableCell>
-                </TableRow>
-              ))
-            )}
-          </TableBody>
-        </Table>
-      </div>
+          </TabsTrigger>
+          <TabsTrigger value="intermediate">
+            Бэлдэц{!loading && ` (${intRows.length})`}
+          </TabsTrigger>
+        </TabsList>
 
-      {/* Бэлдэц ангилалгүй тул ангиллын шүүлтүүр сонгогдсон үед хэсэг нуугдана */}
-      {showIntermediates && (
-        <div className="rounded-lg border">
-          <div className="border-b px-4 py-3">
-            <p className="font-medium">
-              Бэлдэц{!loading && ` (${intRows.length})`}
-            </p>
+        <TabsContent value="raw">
+          <div className="rounded-lg border">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead className="w-12">№</TableHead>
+                  <TableHead className="w-24">Код</TableHead>
+                  <TableHead className="w-28">Үндсэн код</TableHead>
+                  <TableHead>Нэр</TableHead>
+                  <TableHead className="w-28">Ангилал</TableHead>
+                  <TableHead className="w-32">Цехүүд</TableHead>
+                  <TableHead className="w-28">Үндсэн нэгж</TableHead>
+                  <TableHead className="w-28">Хорогдол (%)</TableHead>
+                  <TableHead className="w-32">Доод үлдэгдэл</TableHead>
+                  <TableHead className="w-12" />
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {loading
+                  ? renderSkeleton(10)
+                  : rawRows.length === 0
+                    ? renderEmpty(
+                        10,
+                        rows.some((r) => r.kind === "raw"),
+                        "Түүхий эд бүртгэгдээгүй байна",
+                      )
+                    : rawRows.map((row, i) => (
+                        <TableRow
+                          key={row.id}
+                          className={row.is_active ? "" : "opacity-50"}
+                        >
+                          <TableCell className="text-xs text-muted-foreground">
+                            {i + 1}
+                          </TableCell>
+                          <TableCell className="font-mono text-xs">
+                            {row.code}
+                          </TableCell>
+                          <TableCell className="font-mono text-xs">
+                            {row.base_code ?? "—"}
+                          </TableCell>
+                          <TableCell className="font-medium">
+                            {row.name}
+                          </TableCell>
+                          <TableCell>
+                            {row.category_id ? (
+                              <Badge variant="outline">
+                                {categoryPaths.get(row.category_id) ?? "?"}
+                              </Badge>
+                            ) : (
+                              <span className="text-muted-foreground">—</span>
+                            )}
+                          </TableCell>
+                          <TableCell>{renderStations(row)}</TableCell>
+                          <TableCell>
+                            {BASE_UNIT_LABELS[row.base_unit]}
+                          </TableCell>
+                          <TableCell>
+                            <Input
+                              type="number"
+                              min="0"
+                              step="any"
+                              placeholder="0"
+                              className="h-8 w-20"
+                              value={editLoss[row.id] ?? ""}
+                              onChange={(e) =>
+                                setEditLoss((q) => ({
+                                  ...q,
+                                  [row.id]: e.target.value,
+                                }))
+                              }
+                              onBlur={() => saveRowLoss(row)}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter")
+                                  (e.target as HTMLInputElement).blur();
+                              }}
+                            />
+                          </TableCell>
+                          <TableCell>
+                            {row.min_stock === null
+                              ? "—"
+                              : formatUnitQty(row.min_stock, row.base_unit)}
+                          </TableCell>
+                          <TableCell>{renderActions(row)}</TableCell>
+                        </TableRow>
+                      ))}
+              </TableBody>
+            </Table>
           </div>
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead className="w-12">№</TableHead>
-                <TableHead className="w-24">Код</TableHead>
-                <TableHead className="w-28">Үндсэн код</TableHead>
-                <TableHead>Нэр</TableHead>
-                <TableHead className="w-40">Үйлдвэрлэдэг цех</TableHead>
-                <TableHead className="w-32">Цехүүд</TableHead>
-                <TableHead className="w-28">Үндсэн нэгж</TableHead>
-                <TableHead className="w-32">Доод үлдэгдэл</TableHead>
-                <TableHead className="w-12" />
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {loading ? (
-                renderSkeleton(9)
-              ) : intRows.length === 0 ? (
-                renderEmpty(
-                  9,
-                  rows.some((r) => r.kind === "intermediate"),
-                  "Бэлдэц бүртгэгдээгүй байна",
-                )
-              ) : (
-                intRows.map((row, i) => (
-                  <TableRow
-                    key={row.id}
-                    className={row.is_active ? "" : "opacity-50"}
-                  >
-                    <TableCell className="text-xs text-muted-foreground">
-                      {i + 1}
-                    </TableCell>
-                    <TableCell className="font-mono text-xs">
-                      {row.code}
-                    </TableCell>
-                    <TableCell className="font-mono text-xs">
-                      {row.base_code ?? "—"}
-                    </TableCell>
-                    <TableCell className="font-medium">{row.name}</TableCell>
-                    <TableCell>
-                      {row.source_station ? (
-                        STATION_LABELS[row.source_station]
-                      ) : (
-                        <span className="text-muted-foreground">—</span>
-                      )}
-                    </TableCell>
-                    <TableCell>{renderStations(row)}</TableCell>
-                    <TableCell>{BASE_UNIT_LABELS[row.base_unit]}</TableCell>
-                    <TableCell>
-                      {row.min_stock === null
-                        ? "—"
-                        : formatUnitQty(row.min_stock, row.base_unit)}
-                    </TableCell>
-                    <TableCell>{renderActions(row)}</TableCell>
-                  </TableRow>
-                ))
-              )}
-            </TableBody>
-          </Table>
-        </div>
-      )}
+        </TabsContent>
+
+        <TabsContent value="intermediate">
+          <div className="rounded-lg border">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead className="w-12">№</TableHead>
+                  <TableHead className="w-24">Код</TableHead>
+                  <TableHead className="w-28">Үндсэн код</TableHead>
+                  <TableHead>Нэр</TableHead>
+                  <TableHead className="w-40">Үйлдвэрлэдэг цех</TableHead>
+                  <TableHead className="w-32">Цехүүд</TableHead>
+                  <TableHead className="w-28">Үндсэн нэгж</TableHead>
+                  <TableHead className="w-32">Доод үлдэгдэл</TableHead>
+                  <TableHead className="w-12" />
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {loading
+                  ? renderSkeleton(9)
+                  : intRows.length === 0
+                    ? renderEmpty(
+                        9,
+                        rows.some((r) => r.kind === "intermediate"),
+                        "Бэлдэц бүртгэгдээгүй байна",
+                      )
+                    : intRows.map((row, i) => (
+                        <TableRow
+                          key={row.id}
+                          className={row.is_active ? "" : "opacity-50"}
+                        >
+                          <TableCell className="text-xs text-muted-foreground">
+                            {i + 1}
+                          </TableCell>
+                          <TableCell className="font-mono text-xs">
+                            {row.code}
+                          </TableCell>
+                          <TableCell className="font-mono text-xs">
+                            {row.base_code ?? "—"}
+                          </TableCell>
+                          <TableCell className="font-medium">
+                            {row.name}
+                          </TableCell>
+                          <TableCell>
+                            {row.source_station ? (
+                              STATION_LABELS[row.source_station]
+                            ) : (
+                              <span className="text-muted-foreground">—</span>
+                            )}
+                          </TableCell>
+                          <TableCell>{renderStations(row)}</TableCell>
+                          <TableCell>
+                            {BASE_UNIT_LABELS[row.base_unit]}
+                          </TableCell>
+                          <TableCell>
+                            {row.min_stock === null
+                              ? "—"
+                              : formatUnitQty(row.min_stock, row.base_unit)}
+                          </TableCell>
+                          <TableCell>{renderActions(row)}</TableCell>
+                        </TableRow>
+                      ))}
+              </TableBody>
+            </Table>
+          </div>
+        </TabsContent>
+      </Tabs>
 
       {/* Нэг материал нэмэх/засах */}
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
