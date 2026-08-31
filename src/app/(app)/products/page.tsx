@@ -265,6 +265,7 @@ export default function ProductsPage() {
         <Table>
           <TableHeader>
             <TableRow>
+              <TableHead className="w-12">№</TableHead>
               <TableHead className="w-24">Код</TableHead>
               <TableHead>Нэр</TableHead>
               <TableHead className="w-32">Технологийн карт</TableHead>
@@ -276,7 +277,7 @@ export default function ProductsPage() {
             {loading ? (
               [...Array(3)].map((_, i) => (
                 <TableRow key={i}>
-                  {[...Array(5)].map((_, j) => (
+                  {[...Array(6)].map((_, j) => (
                     <TableCell key={j}>
                       <Skeleton className="h-4 w-full" />
                     </TableCell>
@@ -286,7 +287,7 @@ export default function ProductsPage() {
             ) : filtered.length === 0 ? (
               <TableRow>
                 <TableCell
-                  colSpan={5}
+                  colSpan={6}
                   className="h-24 text-center text-muted-foreground"
                 >
                   {rows.length === 0
@@ -295,11 +296,14 @@ export default function ProductsPage() {
                 </TableCell>
               </TableRow>
             ) : (
-              filtered.map((row) => (
+              filtered.map((row, i) => (
                 <TableRow
                   key={row.id}
                   className={row.is_active ? "" : "opacity-50"}
                 >
+                  <TableCell className="text-xs text-muted-foreground">
+                    {i + 1}
+                  </TableCell>
                   <TableCell className="font-mono text-xs">
                     {row.code}
                   </TableCell>

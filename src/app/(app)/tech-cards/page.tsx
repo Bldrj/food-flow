@@ -181,6 +181,7 @@ export default function TechCardsPage() {
         <Table>
           <TableHeader>
             <TableRow>
+              <TableHead className="w-12">№</TableHead>
               <TableHead>Хоол</TableHead>
               <TableHead className="w-24">Хувилбар</TableHead>
               <TableHead className="w-28">Гарц (1 порц)</TableHead>
@@ -192,7 +193,7 @@ export default function TechCardsPage() {
             {filtered.length === 0 ? (
               <TableRow>
                 <TableCell
-                  colSpan={5}
+                  colSpan={6}
                   className="h-16 text-center text-muted-foreground"
                 >
                   {cards.length === 0
@@ -201,12 +202,15 @@ export default function TechCardsPage() {
                 </TableCell>
               </TableRow>
             ) : (
-              filtered.map((row) => (
+              filtered.map((row, i) => (
                 <TableRow
                   key={row.id}
                   className="cursor-pointer"
                   onClick={() => router.push(`/tech-cards/${row.id}`)}
                 >
+                  <TableCell className="text-xs text-muted-foreground">
+                    {i + 1}
+                  </TableCell>
                   <TableCell className="font-medium">
                     {row.product?.name ?? "—"}{" "}
                     <span className="font-mono text-xs text-muted-foreground">

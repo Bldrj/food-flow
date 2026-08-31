@@ -250,9 +250,6 @@ export default function MaterialsPage() {
   const [search, setSearch] = React.useState("");
   const [showInactive, setShowInactive] = React.useState(false);
   const [categoryFilter, setCategoryFilter] = React.useState<string>("all");
-  const [kindFilter, setKindFilter] = React.useState<MaterialKind | "all">(
-    "all",
-  );
 
   const [dialogOpen, setDialogOpen] = React.useState(false);
   const [editing, setEditing] = React.useState<Material | null>(null);
@@ -375,7 +372,6 @@ export default function MaterialsPage() {
       : categoryWithDescendants(categories, categoryFilter);
 
   const filtered = rows.filter((r) => {
-    if (kindFilter !== "all" && r.kind !== kindFilter) return false;
     if (categoryFilter === "none" && r.category_id !== null) return false;
     if (filterIds && (!r.category_id || !filterIds.has(r.category_id)))
       return false;
@@ -385,6 +381,13 @@ export default function MaterialsPage() {
       .filter(Boolean)
       .some((v) => v!.toLowerCase().includes(q));
   });
+
+  // Түүхий эд ба бэлдэц тусдаа хэсэгт харагдана. Ангиллын шүүлтүүр зөвхөн
+  // түүхий эдэд хамаатай (бэлдэц ангилалгүй) — сонгогдсон үед бэлдэцийн
+  // хэсгийг бүхэлд нь нууна
+  const rawRows = filtered.filter((r) => r.kind === "raw");
+  const intRows = filtered.filter((r) => r.kind === "intermediate");
+  const showIntermediates = categoryFilter === "all";
 
   // Select-ийн label: trigger дээр бүтэн зам, жагсаалтад догол мөртэй нэр
   const categorySelectItems: Record<string, string> = Object.fromEntries(
@@ -476,6 +479,75 @@ export default function MaterialsPage() {
     setForm((f) => ({ ...f, [key]: value }));
   }
 
+  // Хоёр хүснэгтэд дундын нүд/мөрүүд
+  function renderStations(row: Material) {
+    const set = stationsByMaterial.get(row.id);
+    if (!set || set.size === 0)
+      return <span className="text-muted-foreground">—</span>;
+    return (
+      <span className="flex gap-1">
+        {CANONICAL_STATIONS.filter((s) => set.has(s)).map((s) => (
+          <span
+            key={s}
+            title={STATION_LABELS[s]}
+            className="rounded-md bg-secondary px-1.5 py-0.5 text-xs text-secondary-foreground"
+          >
+            {STATION_SHORT[s]}
+          </span>
+        ))}
+      </span>
+    );
+  }
+
+  function renderActions(row: Material) {
+    return (
+      <DropdownMenu>
+        <DropdownMenuTrigger render={<Button variant="ghost" size="icon-sm" />}>
+          <MoreHorizontalIcon />
+          <span className="sr-only">Үйлдэл</span>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end">
+          <DropdownMenuGroup>
+            <DropdownMenuItem onClick={() => openEdit(row)}>
+              Засах
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              variant={row.is_active ? "destructive" : "default"}
+              onClick={() => toggleActive(row)}
+            >
+              {row.is_active ? "Идэвхгүй болгох" : "Идэвхтэй болгох"}
+            </DropdownMenuItem>
+          </DropdownMenuGroup>
+        </DropdownMenuContent>
+      </DropdownMenu>
+    );
+  }
+
+  function renderSkeleton(cols: number) {
+    return [...Array(3)].map((_, i) => (
+      <TableRow key={i}>
+        {[...Array(cols)].map((_, j) => (
+          <TableCell key={j}>
+            <Skeleton className="h-4 w-full" />
+          </TableCell>
+        ))}
+      </TableRow>
+    ));
+  }
+
+  function renderEmpty(cols: number, hasAny: boolean, emptyLabel: string) {
+    return (
+      <TableRow>
+        <TableCell
+          colSpan={cols}
+          className="h-24 text-center text-muted-foreground"
+        >
+          {hasAny ? "Хайлтад тохирох илэрц олдсонгүй" : emptyLabel}
+        </TableCell>
+      </TableRow>
+    );
+  }
+
   return (
     <div className="flex flex-col gap-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -537,23 +609,6 @@ export default function MaterialsPage() {
             ))}
           </SelectContent>
         </Select>
-        <Select
-          items={{ all: "Бүх төрөл", ...MATERIAL_KIND_LABELS }}
-          value={kindFilter}
-          onValueChange={(v) => setKindFilter(v as MaterialKind | "all")}
-        >
-          <SelectTrigger className="w-36">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">Бүх төрөл</SelectItem>
-            {(Object.keys(MATERIAL_KIND_LABELS) as MaterialKind[]).map((k) => (
-              <SelectItem key={k} value={k}>
-                {MATERIAL_KIND_LABELS[k]}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
         <Label className="flex items-center gap-2 text-sm font-normal text-muted-foreground">
           <Switch checked={showInactive} onCheckedChange={setShowInactive} />
           Идэвхгүй харуулах
@@ -571,9 +626,15 @@ export default function MaterialsPage() {
       )}
 
       <div className="rounded-lg border">
+        <div className="border-b px-4 py-3">
+          <p className="font-medium">
+            Түүхий эд{!loading && ` (${rawRows.length})`}
+          </p>
+        </div>
         <Table>
           <TableHeader>
             <TableRow>
+              <TableHead className="w-12">№</TableHead>
               <TableHead className="w-24">Код</TableHead>
               <TableHead className="w-28">Үндсэн код</TableHead>
               <TableHead>Нэр</TableHead>
@@ -587,54 +648,29 @@ export default function MaterialsPage() {
           </TableHeader>
           <TableBody>
             {loading ? (
-              [...Array(3)].map((_, i) => (
-                <TableRow key={i}>
-                  {[...Array(9)].map((_, j) => (
-                    <TableCell key={j}>
-                      <Skeleton className="h-4 w-full" />
-                    </TableCell>
-                  ))}
-                </TableRow>
-              ))
-            ) : filtered.length === 0 ? (
-              <TableRow>
-                <TableCell
-                  colSpan={9}
-                  className="h-24 text-center text-muted-foreground"
-                >
-                  {rows.length === 0
-                    ? "Материал бүртгэгдээгүй байна"
-                    : "Хайлтад тохирох илэрц олдсонгүй"}
-                </TableCell>
-              </TableRow>
+              renderSkeleton(10)
+            ) : rawRows.length === 0 ? (
+              renderEmpty(
+                10,
+                rows.some((r) => r.kind === "raw"),
+                "Түүхий эд бүртгэгдээгүй байна",
+              )
             ) : (
-              filtered.map((row) => (
+              rawRows.map((row, i) => (
                 <TableRow
                   key={row.id}
                   className={row.is_active ? "" : "opacity-50"}
                 >
+                  <TableCell className="text-xs text-muted-foreground">
+                    {i + 1}
+                  </TableCell>
                   <TableCell className="font-mono text-xs">
                     {row.code}
                   </TableCell>
                   <TableCell className="font-mono text-xs">
                     {row.base_code ?? "—"}
                   </TableCell>
-                  <TableCell className="font-medium">
-                    {row.name}
-                    {row.kind === "intermediate" && (
-                      <Badge
-                        variant="secondary"
-                        className="ml-1.5"
-                        title={
-                          row.source_station
-                            ? `${STATION_LABELS[row.source_station]} цехэд үйлдвэрлэгдэнэ`
-                            : undefined
-                        }
-                      >
-                        Бэлдэц
-                      </Badge>
-                    )}
-                  </TableCell>
+                  <TableCell className="font-medium">{row.name}</TableCell>
                   <TableCell>
                     {row.category_id ? (
                       <Badge variant="outline">
@@ -644,90 +680,111 @@ export default function MaterialsPage() {
                       <span className="text-muted-foreground">—</span>
                     )}
                   </TableCell>
-                  <TableCell>
-                    {(() => {
-                      const set = stationsByMaterial.get(row.id);
-                      if (!set || set.size === 0)
-                        return <span className="text-muted-foreground">—</span>;
-                      return (
-                        <span className="flex gap-1">
-                          {CANONICAL_STATIONS.filter((s) => set.has(s)).map(
-                            (s) => (
-                              <span
-                                key={s}
-                                title={STATION_LABELS[s]}
-                                className="rounded-md bg-secondary px-1.5 py-0.5 text-xs text-secondary-foreground"
-                              >
-                                {STATION_SHORT[s]}
-                              </span>
-                            ),
-                          )}
-                        </span>
-                      );
-                    })()}
-                  </TableCell>
+                  <TableCell>{renderStations(row)}</TableCell>
                   <TableCell>{BASE_UNIT_LABELS[row.base_unit]}</TableCell>
                   <TableCell>
-                    {row.kind === "intermediate" ? (
-                      <span className="text-muted-foreground">—</span>
-                    ) : (
-                      <Input
-                        type="number"
-                        min="0"
-                        step="any"
-                        placeholder="0"
-                        className="h-8 w-20"
-                        value={editLoss[row.id] ?? ""}
-                        onChange={(e) =>
-                          setEditLoss((q) => ({
-                            ...q,
-                            [row.id]: e.target.value,
-                          }))
-                        }
-                        onBlur={() => saveRowLoss(row)}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter")
-                            (e.target as HTMLInputElement).blur();
-                        }}
-                      />
-                    )}
+                    <Input
+                      type="number"
+                      min="0"
+                      step="any"
+                      placeholder="0"
+                      className="h-8 w-20"
+                      value={editLoss[row.id] ?? ""}
+                      onChange={(e) =>
+                        setEditLoss((q) => ({
+                          ...q,
+                          [row.id]: e.target.value,
+                        }))
+                      }
+                      onBlur={() => saveRowLoss(row)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter")
+                          (e.target as HTMLInputElement).blur();
+                      }}
+                    />
                   </TableCell>
                   <TableCell>
                     {row.min_stock === null
                       ? "—"
                       : formatUnitQty(row.min_stock, row.base_unit)}
                   </TableCell>
-                  <TableCell>
-                    <DropdownMenu>
-                      <DropdownMenuTrigger
-                        render={<Button variant="ghost" size="icon-sm" />}
-                      >
-                        <MoreHorizontalIcon />
-                        <span className="sr-only">Үйлдэл</span>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end">
-                        <DropdownMenuGroup>
-                          <DropdownMenuItem onClick={() => openEdit(row)}>
-                            Засах
-                          </DropdownMenuItem>
-                          <DropdownMenuItem
-                            variant={row.is_active ? "destructive" : "default"}
-                            onClick={() => toggleActive(row)}
-                          >
-                            {row.is_active
-                              ? "Идэвхгүй болгох"
-                              : "Идэвхтэй болгох"}
-                          </DropdownMenuItem>
-                        </DropdownMenuGroup>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  </TableCell>
+                  <TableCell>{renderActions(row)}</TableCell>
                 </TableRow>
               ))
             )}
           </TableBody>
         </Table>
       </div>
+
+      {/* Бэлдэц ангилалгүй тул ангиллын шүүлтүүр сонгогдсон үед хэсэг нуугдана */}
+      {showIntermediates && (
+        <div className="rounded-lg border">
+          <div className="border-b px-4 py-3">
+            <p className="font-medium">
+              Бэлдэц{!loading && ` (${intRows.length})`}
+            </p>
+          </div>
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead className="w-12">№</TableHead>
+                <TableHead className="w-24">Код</TableHead>
+                <TableHead className="w-28">Үндсэн код</TableHead>
+                <TableHead>Нэр</TableHead>
+                <TableHead className="w-40">Үйлдвэрлэдэг цех</TableHead>
+                <TableHead className="w-32">Цехүүд</TableHead>
+                <TableHead className="w-28">Үндсэн нэгж</TableHead>
+                <TableHead className="w-32">Доод үлдэгдэл</TableHead>
+                <TableHead className="w-12" />
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {loading ? (
+                renderSkeleton(9)
+              ) : intRows.length === 0 ? (
+                renderEmpty(
+                  9,
+                  rows.some((r) => r.kind === "intermediate"),
+                  "Бэлдэц бүртгэгдээгүй байна",
+                )
+              ) : (
+                intRows.map((row, i) => (
+                  <TableRow
+                    key={row.id}
+                    className={row.is_active ? "" : "opacity-50"}
+                  >
+                    <TableCell className="text-xs text-muted-foreground">
+                      {i + 1}
+                    </TableCell>
+                    <TableCell className="font-mono text-xs">
+                      {row.code}
+                    </TableCell>
+                    <TableCell className="font-mono text-xs">
+                      {row.base_code ?? "—"}
+                    </TableCell>
+                    <TableCell className="font-medium">{row.name}</TableCell>
+                    <TableCell>
+                      {row.source_station ? (
+                        STATION_LABELS[row.source_station]
+                      ) : (
+                        <span className="text-muted-foreground">—</span>
+                      )}
+                    </TableCell>
+                    <TableCell>{renderStations(row)}</TableCell>
+                    <TableCell>{BASE_UNIT_LABELS[row.base_unit]}</TableCell>
+                    <TableCell>
+                      {row.min_stock === null
+                        ? "—"
+                        : formatUnitQty(row.min_stock, row.base_unit)}
+                    </TableCell>
+                    <TableCell>{renderActions(row)}</TableCell>
+                  </TableRow>
+                ))
+              )}
+            </TableBody>
+          </Table>
+        </div>
+      )}
 
       {/* Нэг материал нэмэх/засах */}
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
