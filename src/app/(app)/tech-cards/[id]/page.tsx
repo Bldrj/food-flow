@@ -753,7 +753,7 @@ export default function TechCardDetailPage() {
                         saveGroupOutput(group, sel, outputQty[group.id] ?? "")
                       }}
                     >
-                      <SelectTrigger className="h-8 w-44">
+                      <SelectTrigger className="h-8 w-fit max-w-80 min-w-44">
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
