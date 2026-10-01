@@ -94,8 +94,8 @@ function isIncompatibleUnit(
 }
 
 function formatQty(n: number): string {
-  return Number(n.toFixed(6)).toLocaleString("en-US", {
-    maximumFractionDigits: 6,
+  return Number(n.toFixed(2)).toLocaleString("en-US", {
+    maximumFractionDigits: 2,
   })
 }
 
@@ -410,7 +410,7 @@ export default function ReceiptDetailPage() {
                   <TableCell>
                     {formatQty(item.input_quantity)} {item.input_unit}
                   </TableCell>
-                  <TableCell>× {formatQty(item.conversion_rate)}</TableCell>
+                  <TableCell>× {Number(item.conversion_rate)}</TableCell>
                   <TableCell className="font-medium">
                     {item.material
                       ? formatUnitQty(item.base_quantity, item.material.base_unit)

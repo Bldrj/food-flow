@@ -42,8 +42,8 @@ type CountRow = {
 }
 
 function formatQty(n: number): string {
-  return Number(n.toFixed(6)).toLocaleString("en-US", {
-    maximumFractionDigits: 6,
+  return Number(n.toFixed(2)).toLocaleString("en-US", {
+    maximumFractionDigits: 2,
   })
 }
 
@@ -96,7 +96,9 @@ export default function StationCountsPage() {
         .eq("station", station),
     ])
     const work = (workRes.data ?? []) as StationWorkRow[]
-    const counts = (cntRes.data ?? []) as StationStockCount[]
+    // Production rows add cooked rice to the closing-count list, but the
+    // closing-count editor must never update/delete the production total.
+    const counts = (cntRes.data ?? []).filter(c => c.type !== "production") as StationStockCount[]
     setExisting(counts)
     const issuedByMat = new Map(
       (
@@ -126,7 +128,7 @@ export default function StationCountsPage() {
     const matById = new Map<string, Material>()
     const missingIds = [
       ...new Set([
-        ...counts.map((c) => c.material_id),
+        ...(cntRes.data ?? []).map((c) => c.material_id),
         ...issuedByMat.keys(),
       ]),
     ].filter((id) => !byMat.has(id))

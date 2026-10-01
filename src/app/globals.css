@@ -128,3 +128,11 @@
     @apply font-sans;
   }
 }
+
+/* Хэвлэх хуудас ([data-print-sheet], body-д portal-оор орно) нээлттэй үед
+   зөвхөн түүнийг хэвлэнэ — sidebar, толгой, дэлгэцийн агуулга нуугдана */
+@media print {
+  body:has(> [data-print-sheet]) > :not([data-print-sheet]) {
+    display: none !important;
+  }
+}

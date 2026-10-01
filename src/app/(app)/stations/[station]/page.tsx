@@ -1,5 +1,12 @@
 "use client"
 
+import { stationMaterialNorm } from "@/lib/station-material-norm"
+import { RiceFlowSummary } from "@/components/rice-flow-summary"
+import { riceFlow, type RiceFlowRow, type RiceDestination, type RiceStock, type RiceActualState } from "@/lib/rice-flow"
+import { RiceProductionSummary } from "@/components/rice-production-summary"
+import { EggProductionSummary } from "@/components/egg-production-summary"
+import { DAILY_DEMAND_STATUSES, splitDailyProductionBatches } from "@/lib/daily-production-batches"
+
 import * as React from "react"
 import Link from "next/link"
 import { useParams } from "next/navigation"
@@ -9,6 +16,11 @@ import { useDevUser } from "@/components/dev-user-provider"
 import { today } from "@/lib/dev-date"
 import { formatUnitQty } from "@/lib/format-qty"
 import { MaterialPicker } from "@/components/material-picker"
+import {
+  PrepSheetExport,
+  type PrepSheetFood,
+  type PrepSummaryRow,
+} from "@/components/prep-sheet-export"
 import {
   BASE_UNIT_LABELS,
   REQUEST_REASON_LABELS,
@@ -46,6 +58,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { Skeleton } from "@/components/ui/skeleton"
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Textarea } from "@/components/ui/textarea"
 import {
   ArrowRightIcon,
@@ -154,8 +167,8 @@ function toDisplayQty(
 
 
 function formatQty(n: number): string {
-  return Number(n.toFixed(6)).toLocaleString("en-US", {
-    maximumFractionDigits: 6,
+  return Number(n.toFixed(2)).toLocaleString("en-US", {
+    maximumFractionDigits: 2,
   })
 }
 
@@ -186,6 +199,14 @@ export default function StationPage() {
 
   const [date, setDate] = React.useState(today())
   const [batches, setBatches] = React.useState<BatchRow[]>([])
+  const [dailyDemandBatches, setDailyDemandBatches] = React.useState<BatchRow[]>([])
+  const [riceActual, setRiceActual] = React.useState<RiceActualState[]>([])
+  const [riceStock, setRiceStock] = React.useState<RiceStock[]>([])
+  const [riceFlowError, setRiceFlowError] = React.useState(false)
+  const [riceWork, setRiceWork] = React.useState<StationWorkRow[]>([])
+  const [riceTransfers, setRiceTransfers] = React.useState<StationTransfer[]>([])
+  const [riceLoadError, setRiceLoadError] = React.useState(false)
+  const [eggTransferError, setEggTransferError] = React.useState(false)
   const [work, setWork] = React.useState<StationWorkRow[]>([])
   // Бэлдэцийн өдрийн ажил (0026): батчид биш өдрийн нийт эрэлтээс
   // (бүх хэрэглэгч хоолны Σ − үлдэгдэл) бодогдсон
@@ -219,6 +240,10 @@ export default function StationPage() {
   const [bulkRows, setBulkRows] = React.useState<BulkRow[]>([])
   const [bulkSaving, setBulkSaving] = React.useState(false)
   const [bulkError, setBulkError] = React.useState<string | null>(null)
+  // Диалог аль батчийнх вэ — бүрэн шилжүүлмэгц «Дууслаа»-г автоматаар тэмдэглэнэ
+  const [bulkBatchId, setBulkBatchId] = React.useState<string | null>(null)
+  // Хоолны жагсаалтын таб: хийгдэж буй / дууссан (шилжүүлсэн)
+  const [batchTab, setBatchTab] = React.useState<"todo" | "done" | "incoming" | "outgoing" | "rice" | "eggs">("todo")
 
   const isPackaging = station === "packaging"
 
@@ -238,12 +263,11 @@ export default function StationPage() {
           "*, product:products(name, code), tech_card:tech_cards(version, instructions)",
         )
         .eq("production_date", date)
-        .eq("status", "in_production"),
+        .in("status", [...DAILY_DEMAND_STATUSES]),
       supabase
         .from("station_work")
         .select("*")
-        .eq("production_date", date)
-        .eq("status", "in_production"),
+        .eq("production_date", date),
       supabase
         .from("station_intermediate_work")
         .select("*")
@@ -269,9 +293,28 @@ export default function StationPage() {
         .or(`from_station.eq.${station},to_station.eq.${station}`)
         .order("created_at"),
     ])
-    const batchRows = (batchRes.data ?? []) as BatchRow[]
+    const { active: batchRows, demand: demandRows } = splitDailyProductionBatches(
+      (batchRes.data ?? []) as BatchRow[],
+    )
+    setRiceLoadError(Boolean(batchRes.error))
+    setEggTransferError(Boolean(trRes.error || matRes.error))
     setBatches(batchRows)
-    setWork((workRes.data ?? []) as StationWorkRow[])
+    setDailyDemandBatches(demandRows)
+    setWork(((workRes.data ?? []) as StationWorkRow[]).filter(r => r.status === "in_production"))
+    setRiceWork((workRes.data ?? []) as StationWorkRow[])
+    if (station === "hot" || station === "hot_aux") {
+      const riceTrRes = await supabase.from("station_transfers").select("*").eq("transfer_date", date)
+        .or("from_station.eq.hot_aux,to_station.eq.hot_aux")
+      setRiceTransfers((riceTrRes.data ?? []) as StationTransfer[])
+      const latest = await supabase.from("station_stock_counts").select("date").eq("type", "leftover")
+        .lt("date", date).order("date", { ascending: false }).limit(1)
+      const stock = latest.data?.[0] ? await supabase.from("station_stock_counts")
+        .select("material_id,station,qty").eq("type", "leftover").eq("date", latest.data[0].date) : { data: [], error: null }
+      setRiceStock((stock.data ?? []) as RiceStock[])
+      const actual = await supabase.rpc("rice_production_state", { p_date: date })
+      setRiceActual((actual.data ?? []) as RiceActualState[])
+      setRiceFlowError(Boolean(workRes.error || intRes.error || matRes.error || riceTrRes.error || latest.error || stock.error || actual.error))
+    }
     setIntWork((intRes.data ?? []) as StationIntermediateRow[])
     setMaterials((matRes.data ?? []) as Material[])
     setRequests((reqRes.data ?? []) as MaterialRequest[])
@@ -414,14 +457,12 @@ export default function StationPage() {
   )
 
   // Шилжилтүүд (0028): ирснийг материалаар нь бүлэглэж өөрийн цехийн
-  // өнөөдрийн нормтой (station_work Σ) тулгана — Excel-ийн «{цех}-ээс орж
+  // өнөөдрийн шууд орц + бэлдэцийн орцын нормтой тулгана — Excel-ийн «{цех}-ээс орж
   // ирсэн / Зөрүү илүү-дутуу» багана. Өгсөн Σ бэлдэцийн мөрөнд харагдана
   const incomingTr = transfers.filter((t) => t.to_station === station)
   const outgoingTr = transfers.filter((t) => t.from_station === station)
   const normAtOwn = (materialId: string) =>
-    ownWork
-      .filter((w) => w.material_id === materialId)
-      .reduce((s, w) => s + Number(w.qty), 0)
+    stationMaterialNorm(station, materialId, ownWork, intWork)
   const incomingByMat = new Map<string, StationTransfer[]>()
   for (const t of incomingTr) {
     const list = incomingByMat.get(t.material_id) ?? []
@@ -518,8 +559,8 @@ export default function StationPage() {
 
   // Батчийн шилжүүлж болох мөрүүд: ердийн ажлын мөрүүд + энэ хоолны
   // бэлдэцүүд (бэлэн гарц эсвэл түүний жорын орцууд). Материал + хүлээн
-  // авагч цехээр нэгтгэнэ
-  function bulkRowsFor(batchId: string): BulkRow[] {
+  // авагч цехээр нэгтгэнэ. raw — нормын дүн (base_unit-ээр)
+  function bulkRowsFor(batchId: string): (BulkRow & { raw: number })[] {
     const merged = new Map<string, BulkRow & { raw: number }>()
     const add = (
       material_id: string,
@@ -819,7 +860,31 @@ export default function StationPage() {
     setBulkSubtitle(
       `${batch.total_qty} порцын норм. Хүлээн авагч цех технологийн картын замаас автоматаар оноогдсон; бодит өгч буй хэмжээгээ засаж болно.`,
     )
-    setBulkRows(bulkRowsFor(batch.id))
+    setBulkBatchId(batch.id)
+    setBulkRows(bulkPending.get(batch.id) ?? [])
+    setBulkError(null)
+    setBulkOpen(true)
+  }
+
+  function openRiceTransfer(row: RiceFlowRow, target: RiceDestination) {
+    if (!row.material || riceFlowError) return
+    setBulkTitle(`${row.material.name} — шилжүүлэх`)
+    setBulkSubtitle("Агшаасан будааны бодит жинг кг-аар оруулна уу. Хуурай будааны хэмжээг оруулахгүй.")
+    setBulkBatchId(null)
+    setBulkRows([{ material_id: row.material.id, name: row.material.name, base_unit: "kg",
+      to_station: target, qty: "", unit: "кг", checked: true }])
+    setBulkError(null)
+    setBulkOpen(true)
+  }
+
+  function openEggTransfer() {
+    setBulkTitle("Өндөг бэлтгэл — шилжүүлэх")
+    setBulkSubtitle("Халуун цехэд бодитоор өгч буй өндөгний ширхэг эсвэл шингэн өндөгний литрийг оруулна уу.")
+    setBulkBatchId(null)
+    setBulkRows(materials.filter(m => m.code === "2-034" || m.code === "2-320").map(m => ({
+      material_id: m.id, name: m.name, base_unit: m.base_unit,
+      to_station: "hot" as const, qty: "", unit: INPUT_UNITS[m.base_unit][0].unit, checked: false,
+    })))
     setBulkError(null)
     setBulkOpen(true)
   }
@@ -855,14 +920,37 @@ export default function StationPage() {
         given_by: user.name,
       })
     }
+    // Давхар даралтаас сэргийлнэ (хадгалж дуусахаас өмнөх 2 дахь даралт)
+    if (bulkSaving) return
     setBulkSaving(true)
     setBulkError(null)
     const { error } = await supabase.from("station_transfers").insert(payload)
-    setBulkSaving(false)
     if (error) {
+      setBulkSaving(false)
       setBulkError(error.message)
       return
     }
+    // Үлдсэн бүх мөр нормоороо шилжсэн бол цехийн ажил дууссан гэж үзнэ
+    // (мултласан эсвэл нормоос бага өгсөн мөр байвал товч үлдэнэ)
+    const toBase = (r: BulkRow) =>
+      Number(r.qty) *
+      (INPUT_UNITS[r.base_unit].find((u) => u.unit === r.unit)?.rate ?? 1)
+    const complete =
+      bulkBatchId !== null &&
+      (bulkPending.get(bulkBatchId) ?? []).every((p) => {
+        const sent = picked.find(
+          (r) =>
+            r.material_id === p.material_id && r.to_station === p.to_station,
+        )
+        return sent !== undefined && toBase(sent) >= toBase(p) - 1e-9
+      })
+    if (complete && bulkBatchId && !progressByBatch.has(bulkBatchId)) {
+      const { error: doneError } = await supabase
+        .from("batch_station_progress")
+        .insert({ batch_id: bulkBatchId, station, done_by: user.name })
+      if (doneError) setError(doneError.message)
+    }
+    setBulkSaving(false)
     setBulkOpen(false)
     load()
   }
@@ -895,6 +983,161 @@ export default function StationPage() {
         (a.product?.name ?? "").localeCompare(b.product?.name ?? "") ||
         a.batch_seq - b.batch_seq,
     )
+
+  // Батч бүрийн ШИЛЖҮҮЛЭЭГҮЙ үлдсэн мөрүүд: өнөөдөр энэ цехээс өгсөн дүнг
+  // (материал + хүлээн авагчаар) батчуудын нормд дарааллаар нь хуваарилж
+  // хасна — шилжүүлсэн хоолыг дахин шилжүүлэхээс сэргийлнэ. Шилжилтэд
+  // batch_id байхгүй тул нэг материал олон хоолонд орвол эхний батчаас
+  // эхэлж нөхнө
+  const givenPool = new Map<string, number>()
+  for (const t of outgoingTr) {
+    const key = `${t.material_id}|${t.to_station}`
+    givenPool.set(key, (givenPool.get(key) ?? 0) + Number(t.qty))
+  }
+  const bulkPending = new Map<string, BulkRow[]>()
+  for (const b of relevantBatches) {
+    const normRows = bulkRowsFor(b.id)
+    const pending: BulkRow[] = []
+    for (const { raw, ...row } of normRows) {
+      const key = `${row.material_id}|${row.to_station}`
+      const used = Math.min(givenPool.get(key) ?? 0, raw)
+      givenPool.set(key, (givenPool.get(key) ?? 0) - used)
+      const rest = raw - used
+      // Харагдацын нарийвчлалаар (3 орон) дугуйлсан зөрүүг үл тооно
+      if (rest <= (Math.abs(raw) < 1 ? 1e-6 : 1e-3)) continue
+      const d = toDisplayQty(rest, row.base_unit)
+      pending.push({ ...row, qty: String(d.value), unit: d.unit })
+    }
+    bulkPending.set(b.id, pending)
+  }
+
+  // Бэлтгэл цехийн хэвлэх / Excel хуудсууд (Master-ийн «🔪 Бэлтгэл — хоолоор»,
+  // «🔪 Бэлтгэл — нэгтгэл»). Өдрийн бүх хоол — дууссан нь ч орно
+  const prepFoods: PrepSheetFood[] = []
+  const prepSummary: PrepSummaryRow[] = []
+  if (station === "prep") {
+    // Бэлдэцийн жорын орцууд нэг бүлэг болно. Нийт нь өдрийн цэвэр эрэлтээр
+    // (бүх хэрэглэгч хоол − үлдэгдэл), 1 порц нь тухайн хоолны хэрэглээгээр
+    const intGroup = (id: string, batch: BatchRow | null) => {
+      const e = intByIntermediate.get(id)
+      if (!e || e.components.length === 0) return null
+      const any = e.components[0]
+      const net = Number(any.net_qty)
+      const use = batch ? (intUseByBatch.get(batch.id)?.get(id) ?? 0) : 0
+      const also = intAlsoFor.get(id) ?? []
+      const notes = [
+        ...(Number(any.leftover_qty) > 0
+          ? [
+              `үлдэгдэл ${formatWorkQty(
+                Number(any.leftover_qty),
+                any.intermediate_unit,
+              )} хасагдсан`,
+            ]
+          : []),
+        ...(also.length > 0
+          ? [`нийт хэмжээ — ${also.join(", ")} хоолонд ч ордог`]
+          : []),
+      ]
+      return {
+        name:
+          any.intermediate_name +
+          (notes.length > 0 ? ` /${notes.join("; ")}/` : ""),
+        rows: e.components.map((c) => ({
+          name: c.component_name ?? "—",
+          perPortion:
+            batch && net > 0 && use > 0
+              ? ((Number(c.qty) / net) * use) / Number(batch.total_qty)
+              : null,
+          total: Number(c.qty),
+          baseUnit: (c.component_unit ?? "kg") as CanonicalUnit,
+        })),
+      }
+    }
+    for (const b of relevantBatches) {
+      const groups: PrepSheetFood["groups"] = []
+      for (const id of intIdsForBatch(b.id)) {
+        const g = intGroup(id, b)
+        if (g) groups.push(g)
+      }
+      const byGroup = new Map<string, StationWorkRow[]>()
+      for (const r of [...(workByBatch.get(b.id) ?? [])].sort(
+        (a, x) => a.group_sort - x.group_sort || a.item_sort - x.item_sort,
+      )) {
+        const list = byGroup.get(r.group_name) ?? []
+        list.push(r)
+        byGroup.set(r.group_name, list)
+      }
+      for (const [name, items] of byGroup) {
+        groups.push({
+          name,
+          rows: items.map((r) => ({
+            name: r.material_name,
+            perPortion: Number(r.qty) / Number(r.total_qty),
+            total: Number(r.qty),
+            baseUnit: r.base_unit,
+          })),
+        })
+      }
+      if (groups.length === 0) continue
+      prepFoods.push({
+        title:
+          `${b.product?.name ?? "—"} — ${b.total_qty} порц` +
+          (b.batch_seq > 1 ? ` (батч №${b.batch_seq})` : ""),
+        groups,
+      })
+    }
+    const orphanGroups = orphanIntIds.flatMap((id) => intGroup(id, null) ?? [])
+    if (orphanGroups.length > 0) {
+      prepFoods.push({ title: "Бэлдэц", groups: orphanGroups })
+    }
+
+    // Нэгтгэл: материал бүрийн өдрийн норм (шууд мөр + бэлдэцийн орц).
+    // «Өмнө өгсөн» = өнөөдөр энэ цехээс шилжүүлсэн дүн; бэлэн бэлдэцээр
+    // өгсөн бол жорынх нь харьцаагаар орц руу задална
+    const summaryMats = new Map<
+      string,
+      { name: string; baseUnit: CanonicalUnit }
+    >()
+    for (const w of ownWork) {
+      summaryMats.set(w.material_id, {
+        name: w.material_name,
+        baseUnit: w.base_unit,
+      })
+    }
+    const given = new Map(givenByMat)
+    for (const [id, e] of intByIntermediate) {
+      for (const c of e.components) {
+        if (!c.component_id) continue
+        summaryMats.set(c.component_id, {
+          name: c.component_name ?? "—",
+          baseUnit: (c.component_unit ?? "kg") as CanonicalUnit,
+        })
+        const out = Number(e.output?.qty ?? 0)
+        const givenOut = givenByMat.get(id) ?? 0
+        if (out > 0 && givenOut > 0) {
+          given.set(
+            c.component_id,
+            (given.get(c.component_id) ?? 0) +
+              (givenOut * Number(c.qty)) / out,
+          )
+        }
+      }
+    }
+    for (const [id, m] of summaryMats) {
+      const mat = materialById.get(id)
+      prepSummary.push({
+        ...m,
+        total: normAtOwn(id),
+        given: given.get(id) ?? 0,
+        lossPct: mat?.kind === "raw" ? Number(mat.loss_pct) : null,
+      })
+    }
+    prepSummary.sort((a, b) => a.name.localeCompare(b.name, "mn"))
+  }
+
+  const todoBatches = relevantBatches.filter((b) => !progressByBatch.has(b.id))
+  const doneBatches = relevantBatches.filter((b) => progressByBatch.has(b.id))
+  const shownBatches = batchTab === "todo" ? todoBatches : doneBatches
 
   async function markDone(batch: BatchRow) {
     setMarking(true)
@@ -1042,13 +1285,20 @@ export default function StationPage() {
               : "Үйлдвэрлэлд орсон батчуудын энэ цехэд хийгдэх ажил"}
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <Input
             type="date"
             className="w-40"
             value={date}
             onChange={(e) => setDate(e.target.value)}
           />
+          {station === "prep" && (
+            <PrepSheetExport
+              date={date}
+              foods={prepFoods}
+              summary={prepSummary}
+            />
+          )}
           <Button
             variant="outline"
             render={<Link href={`/stations/${station}/counts`} />}
@@ -1156,9 +1406,60 @@ export default function StationPage() {
         </div>
       )}
 
+      {loading ? (
+        <Skeleton className="h-12 w-full" />
+      ) : (
+        <Tabs value={batchTab} onValueChange={(v) => setBatchTab(v as typeof batchTab)}>
+          <TabsList className="h-auto flex-wrap">
+            <TabsTrigger value="todo">Хийгдэж буй ({todoBatches.length})</TabsTrigger>
+            <TabsTrigger value="done">Дууссан ({doneBatches.length})</TabsTrigger>
+            <TabsTrigger value="incoming">Ирсэн ({incomingTr.length})</TabsTrigger>
+            <TabsTrigger value="outgoing">Өгсөн ({outgoingTr.length})</TabsTrigger>
+            {(station === "hot" || station === "hot_aux") && (
+              <TabsTrigger value="rice">Будаа агшаалга</TabsTrigger>
+            )}
+            {(station === "hot" || station === "hot_aux") && (
+              <TabsTrigger value="eggs">Өндөг бэлтгэл</TabsTrigger>
+            )}
+          </TabsList>
+        </Tabs>
+      )}
+      {!loading && batchTab === "rice" && (station === "hot" || station === "hot_aux") && (
+        riceLoadError ? (
+          <p role="alert" className="text-destructive">Үйлдвэрлэлийн мэдээлэл уншиж чадсангүй. Будааны хэрэгцээг дахин ачаалж шалгана уу.</p>
+        ) : <div className="space-y-6">
+          {riceFlowError ? <p role="alert" className="text-destructive">Будааны жор, шилжүүлгийн мэдээллийг бүрэн уншиж чадсангүй. Дахин ачаална уу.</p>
+            : <RiceFlowSummary rows={riceFlow(materials, riceWork, intWork, riceTransfers, riceStock)}
+                onTransfer={station === "hot_aux" ? openRiceTransfer : undefined}
+                actual={riceActual} date={date} actor={user.name}
+                onProductionSaved={station === "hot_aux" ? load : undefined} />}
+          <details><summary className="cursor-pointer text-sm">Excel нормын лавлагаа — хоол тус бүрээр</summary>
+            <RiceProductionSummary batches={dailyDemandBatches} /></details>
+        </div>
+      )}
+      {!loading && batchTab === "eggs" && (station === "hot" || station === "hot_aux") && (
+        riceLoadError ? <p role="alert" className="text-destructive">Үйлдвэрлэлийн мэдээлэл уншиж чадсангүй. Өндөгний хэрэгцээг дахин ачаалж шалгана уу.</p>
+          : <EggProductionSummary batches={dailyDemandBatches} transfers={transfers} materials={materials} transferError={eggTransferError}
+              onTransfer={station === "hot_aux" && !eggTransferError ? openEggTransfer : undefined} />
+      )}
+      {!loading && (
+        (batchTab === "incoming" && incomingTr.length === 0) ||
+        (batchTab === "outgoing" && outgoingTr.length === 0)
+      ) && (
+        <div className="rounded-lg border p-8 text-center text-muted-foreground">
+          {batchTab === "incoming" ? "Энэ өдөрт ирсэн шилжилт алга" : "Энэ өдөрт өгсөн шилжилт алга"}
+        </div>
+      )}
+      {!loading && (batchTab === "todo" || batchTab === "done") && relevantBatches.length === 0 && (
+        <div className="rounded-lg border p-8 text-center text-muted-foreground">
+          Энэ өдөрт {STATION_LABELS[station]} цехэд ажил алга — батч
+          «Үйлдвэрлэлд» орсны дараа энд харагдана
+        </div>
+      )}
+
       {/* Ирсэн шилжилт (0028): материалаар нь бүлэглэж нормтой тулгана —
           Excel-ийн «{цех}-ээс орж ирсэн / Зөрүү илүү-дутуу» багана */}
-      {!loading && incomingTr.length > 0 && (
+      {!loading && batchTab === "incoming" && incomingTr.length > 0 && (
         <div className="rounded-lg border">
           <div className="border-b px-4 py-3">
             <p className="font-medium">Ирсэн шилжилт</p>
@@ -1214,7 +1515,7 @@ export default function StationPage() {
       )}
 
       {/* Өгсөн шилжилт: андуурсан бичилтээ устгаж болно */}
-      {!loading && outgoingTr.length > 0 && (
+      {!loading && batchTab === "outgoing" && outgoingTr.length > 0 && (
         <div className="rounded-lg border">
           <div className="border-b px-4 py-3">
             <p className="font-medium">Өгсөн шилжилт</p>
@@ -1259,7 +1560,7 @@ export default function StationPage() {
 
       {/* Хоолонд хавсрагдаагүй бэлдэц — хэрэглээний мөр нь цехгүй бүлэгт
           байвал энд гарна (өгөгдөл чимээгүй алдагдахаас сэргийлж) */}
-      {!loading && orphanIntIds.length > 0 && (
+      {!loading && batchTab === "todo" && orphanIntIds.length > 0 && (
         <div className="rounded-lg border">
           <div className="border-b px-4 py-3">
             <p className="font-medium">Бэлдэц</p>
@@ -1270,15 +1571,15 @@ export default function StationPage() {
         </div>
       )}
 
-      {loading ? (
-        <Skeleton className="h-64 w-full" />
-      ) : relevantBatches.length === 0 ? (
+      {loading || batchTab === "eggs" || batchTab === "rice" || batchTab === "incoming" || batchTab === "outgoing" || relevantBatches.length === 0 ? null : shownBatches.length ===
+        0 ? (
         <div className="rounded-lg border p-8 text-center text-muted-foreground">
-          Энэ өдөрт {STATION_LABELS[station]} цехэд ажил алга — батч
-          «Үйлдвэрлэлд» орсны дараа энд харагдана
+          {batchTab === "todo"
+            ? "Бүх хоол дууссан — «Дууссан» табаас харна уу"
+            : "Дууссан хоол алга"}
         </div>
       ) : (
-        relevantBatches.map((b) => {
+        shownBatches.map((b) => {
           const done = progressByBatch.get(b.id)
           const rows = workByBatch.get(b.id) ?? []
           // Бүлгээр нь ангилж эрэмбэлнэ
@@ -1293,9 +1594,7 @@ export default function StationPage() {
           return (
             <div
               key={b.id}
-              className={
-                done ? "rounded-lg border opacity-50" : "rounded-lg border"
-              }
+              className="rounded-lg border"
             >
               <div className="flex flex-wrap items-center justify-between gap-2 border-b px-4 py-3">
                 <p className="text-xl font-semibold">
@@ -1306,18 +1605,10 @@ export default function StationPage() {
                   </span>
                 </p>
                 <div className="flex items-center gap-2">
-                  {/* Хоолоор бөөн шилжүүлэх: мөр бүр замынхаа дараагийн цех
-                      рүү, тэр цехийн авах ёстой нормоор бөглөгдөнө */}
-                  {bulkRowsFor(b.id).length > 0 && (
-                    <Button
-                      size="lg"
-                      variant="outline"
-                      onClick={() => openBulkTransfer(b)}
-                    >
-                      <ArrowRightIcon />
-                      Шилжүүлэх
-                    </Button>
-                  )}
+                  {/* Хоол бүрт НЭГ товч: шилжүүлэх мөр үлдсэн бол «Шилжүүлэх»
+                      (мөр бүр замынхаа дараагийн цех рүү, нормоор бөглөгдөнө;
+                      бүрэн шилжмэгц автоматаар дуусна), шилжүүлэх зүйлгүй
+                      бол «Дууслаа» */}
                   {done ? (
                     <>
                       <Badge variant="secondary">
@@ -1335,6 +1626,11 @@ export default function StationPage() {
                         <span className="sr-only">Буцаах</span>
                       </Button>
                     </>
+                  ) : (bulkPending.get(b.id)?.length ?? 0) > 0 ? (
+                    <Button size="lg" onClick={() => openBulkTransfer(b)}>
+                      <ArrowRightIcon />
+                      Шилжүүлэх
+                    </Button>
                   ) : (
                     <Button
                       size="lg"

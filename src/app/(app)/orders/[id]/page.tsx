@@ -64,8 +64,8 @@ type Entry = { product_id: string; qty: number }
 type DeliveryFull = Delivery & { items: DeliveryItem[] }
 
 function formatQty(n: number): string {
-  return Number(n.toFixed(6)).toLocaleString("en-US", {
-    maximumFractionDigits: 6,
+  return Number(n.toFixed(2)).toLocaleString("en-US", {
+    maximumFractionDigits: 2,
   })
 }
 

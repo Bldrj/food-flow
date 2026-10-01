@@ -1,0 +1,48 @@
+begin;
+create temporary table rice_actual_test_result(result text);
+do $$
+declare mid uuid; b numeric; stamp timestamptz; tr uuid; caught boolean;
+begin
+ select id into mid from public.materials where code='BLD-018';
+ if exists(select 1 from public.station_stock_counts where date>='2089-12-31') or exists(select 1 from public.station_transfers where transfer_date>='2089-12-31') then raise exception 'Audit dates occupied';end if;
+ -- Isolate opening snapshot without altering an existing count.
+ insert into public.station_stock_counts(date,station,material_id,qty,type) select '2089-12-31','hot_aux',id,1,'leftover' from public.materials where code='2-001';
+ caught:=false;begin insert into public.station_transfers(transfer_date,from_station,to_station,material_id,qty) values('2090-01-01','hot_aux','packaging',mid,1);exception when raise_exception then caught:=true;end;
+ if not caught then raise exception 'FAIL: transfer without production allowed';end if;
+ perform public.set_rice_production('2090-01-01',mid,10,null,'ROLLBACK-TEST');
+ select production_updated_at into stamp from public.rice_production_state('2090-01-01') where material_id=mid;
+ perform public.set_rice_production('2090-01-01',mid,10,null,'ROLLBACK-TEST');
+ select produced_kg into b from public.rice_production_state('2090-01-01') where material_id=mid;
+ if b<>10 then raise exception 'FAIL: duplicate production';end if;
+ insert into public.station_transfers(transfer_date,from_station,to_station,material_id,qty) values('2090-01-01','hot_aux','packaging',mid,6);
+ insert into public.station_transfers(transfer_date,from_station,to_station,material_id,qty) values('2090-01-01','packaging','hot_aux',mid,2) returning id into tr;
+ select available_kg into b from public.rice_actual_balance('2090-01-01',mid);if b<>4 then raise exception 'FAIL: unconfirmed return counted';end if;
+ update public.station_transfers set received_at=now(),received_by='TEST' where id=tr;
+ select available_kg into b from public.rice_actual_balance('2090-01-01',mid);if b<>6 then raise exception 'FAIL: confirmed return missing';end if;
+ caught:=false;begin insert into public.station_transfers(transfer_date,from_station,to_station,material_id,qty) values('2090-01-01','hot_aux','hot',mid,7);exception when raise_exception then caught:=true;end;
+ if not caught then raise exception 'FAIL: over-transfer allowed';end if;
+ insert into public.station_transfers(transfer_date,from_station,to_station,material_id,qty) values('2090-01-01','hot_aux','hot',mid,6);
+ caught:=false;begin perform public.set_rice_production('2090-01-01',mid,9,stamp,'TEST');exception when raise_exception then caught:=true;end;
+ if not caught then raise exception 'FAIL: production correction below issued allowed';end if;
+ perform public.set_rice_production('2090-01-01',mid,12,stamp,'TEST');
+ caught:=false;begin perform public.set_rice_production('2090-01-01',mid,13,'2000-01-01'::timestamptz,'TEST');exception when raise_exception then caught:=true;end;
+ if not caught then raise exception 'FAIL: stale edit allowed';end if;
+ insert into public.station_stock_counts(date,station,material_id,qty,type)values('2090-01-01','hot_aux',mid,1,'waste');
+ select available_kg into b from public.rice_actual_balance('2090-01-01',mid);if b<>1 then raise exception 'FAIL: waste';end if;
+ select opening_kg into b from public.rice_actual_balance('2090-01-02',mid);if b<>1 then raise exception 'FAIL: next-day carry';end if;
+ insert into public.station_transfers(transfer_date,from_station,to_station,material_id,qty) values('2090-01-02','hot_aux','packaging',mid,1);
+ caught:=false;begin perform public.set_rice_production('2090-01-01',mid,11,stamp,'TEST');exception when raise_exception then caught:=true;end;
+ if not caught then raise exception 'FAIL: backdated correction made tomorrow negative';end if;
+ caught:=false;begin insert into public.station_stock_counts(date,station,material_id,qty,type)values('2090-01-03','hot_aux',mid,'NaN','production');exception when raise_exception then caught:=true;end;
+ if not caught then raise exception 'FAIL: NaN';end if;
+ caught:=false;begin insert into public.station_transfers(transfer_date,from_station,to_station,material_id,qty)values('2090-01-03','hot_aux','packaging',mid,1),('2090-01-03','hot_aux','hot',mid,1);exception when raise_exception then caught:=true;end;
+ if not caught then raise exception 'FAIL: multirow overspend';end if;
+ caught:=false;begin update public.station_transfers set qty=20 where transfer_date='2090-01-02' and material_id=mid;exception when raise_exception then caught:=true;end;
+ if not caught then raise exception 'FAIL: transfer update overspend';end if;
+ caught:=false;begin delete from public.station_stock_counts where date='2090-01-01' and material_id=mid and type='production';exception when raise_exception then caught:=true;end;
+ if not caught then raise exception 'FAIL: deleting consumed production';end if;
+ perform public.set_rice_production('2090-01-03',mid,0,null,'TEST');
+ insert into rice_actual_test_result values('PASS: 15 scenarios — no-production, duplicate total, partial transfer, pending/confirmed return, over-transfer, correction, stale edit, waste, next day, backdate, NaN, multirow and zero correction');
+end $$;
+select * from rice_actual_test_result;
+rollback;
