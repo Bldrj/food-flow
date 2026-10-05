@@ -242,8 +242,8 @@ export default function StationPage() {
   const [bulkError, setBulkError] = React.useState<string | null>(null)
   // Диалог аль батчийнх вэ — бүрэн шилжүүлмэгц «Дууслаа»-г автоматаар тэмдэглэнэ
   const [bulkBatchId, setBulkBatchId] = React.useState<string | null>(null)
-  // Хоолны жагсаалтын таб: хийгдэж буй / дууссан (шилжүүлсэн)
-  const [batchTab, setBatchTab] = React.useState<"todo" | "done" | "incoming" | "outgoing" | "rice" | "eggs">("todo")
+  // Хоолны жагсаалтын таб: хийгдэж буй (дууссан нь жагсаалтын төгсгөлд) / ирсэн / өгсөн
+  const [batchTab, setBatchTab] = React.useState<"todo" | "incoming" | "outgoing" | "rice" | "eggs">("todo")
 
   const isPackaging = station === "packaging"
 
@@ -1137,7 +1137,8 @@ export default function StationPage() {
 
   const todoBatches = relevantBatches.filter((b) => !progressByBatch.has(b.id))
   const doneBatches = relevantBatches.filter((b) => progressByBatch.has(b.id))
-  const shownBatches = batchTab === "todo" ? todoBatches : doneBatches
+  // Нэг жагсаалт: хийгдэж буй нь дээр, дууссан нь тэмдэглэгээтэйгээр доор
+  const shownBatches = [...todoBatches, ...doneBatches]
 
   async function markDone(batch: BatchRow) {
     setMarking(true)
@@ -1412,7 +1413,6 @@ export default function StationPage() {
         <Tabs value={batchTab} onValueChange={(v) => setBatchTab(v as typeof batchTab)}>
           <TabsList className="h-auto flex-wrap">
             <TabsTrigger value="todo">Хийгдэж буй ({todoBatches.length})</TabsTrigger>
-            <TabsTrigger value="done">Дууссан ({doneBatches.length})</TabsTrigger>
             <TabsTrigger value="incoming">Ирсэн ({incomingTr.length})</TabsTrigger>
             <TabsTrigger value="outgoing">Өгсөн ({outgoingTr.length})</TabsTrigger>
             {(station === "hot" || station === "hot_aux") && (
@@ -1450,7 +1450,7 @@ export default function StationPage() {
           {batchTab === "incoming" ? "Энэ өдөрт ирсэн шилжилт алга" : "Энэ өдөрт өгсөн шилжилт алга"}
         </div>
       )}
-      {!loading && (batchTab === "todo" || batchTab === "done") && relevantBatches.length === 0 && (
+      {!loading && batchTab === "todo" && relevantBatches.length === 0 && (
         <div className="rounded-lg border p-8 text-center text-muted-foreground">
           Энэ өдөрт {STATION_LABELS[station]} цехэд ажил алга — батч
           «Үйлдвэрлэлд» орсны дараа энд харагдана
@@ -1571,14 +1571,7 @@ export default function StationPage() {
         </div>
       )}
 
-      {loading || batchTab === "eggs" || batchTab === "rice" || batchTab === "incoming" || batchTab === "outgoing" || relevantBatches.length === 0 ? null : shownBatches.length ===
-        0 ? (
-        <div className="rounded-lg border p-8 text-center text-muted-foreground">
-          {batchTab === "todo"
-            ? "Бүх хоол дууссан — «Дууссан» табаас харна уу"
-            : "Дууссан хоол алга"}
-        </div>
-      ) : (
+      {loading || batchTab !== "todo" || relevantBatches.length === 0 ? null : (
         shownBatches.map((b) => {
           const done = progressByBatch.get(b.id)
           const rows = workByBatch.get(b.id) ?? []
