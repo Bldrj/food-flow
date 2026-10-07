@@ -6,6 +6,25 @@ import { useParams, useRouter } from "next/navigation"
 
 import { createClient } from "@/lib/supabase/client"
 import { MaterialPicker } from "@/components/material-picker"
+import { ImageUploader } from "@/components/image-uploader"
+import { removeImage } from "@/lib/upload-image"
+import {
+  DndContext,
+  KeyboardSensor,
+  PointerSensor,
+  closestCenter,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from "@dnd-kit/core"
+import {
+  SortableContext,
+  arrayMove,
+  sortableKeyboardCoordinates,
+  useSortable,
+  verticalListSortingStrategy,
+} from "@dnd-kit/sortable"
+import { CSS } from "@dnd-kit/utilities"
 import {
   BASE_UNIT_LABELS,
   STATION_LABELS,
@@ -15,6 +34,7 @@ import {
   type TechCard,
   type TechCardGroup,
   type TechCardItem,
+  type TechCardStationStep,
 } from "@/lib/types"
 
 import { Badge } from "@/components/ui/badge"
@@ -37,11 +57,13 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Textarea } from "@/components/ui/textarea"
 import {
   ArrowLeftIcon,
   CheckIcon,
   CopyPlusIcon,
+  GripVerticalIcon,
   PlusIcon,
   SaveIcon,
   Trash2Icon,
@@ -108,6 +130,103 @@ const STATION_SHORT: Record<StationCode, string> = {
   packaging: "Са",
 }
 
+// Зааврын нэг алхам — чирж эрэмбэлэгдэнэ (dnd-kit). Чирэх бариул зөвхөн
+// зүүн талын icon: textarea/товч дээр дарахад чирэлт эхлэхгүй
+function SortableStepCard({
+  step,
+  index,
+  draft,
+  saving,
+  prefix,
+  onDraftChange,
+  onBlur,
+  onImagesChange,
+  onRemove,
+}: {
+  step: TechCardStationStep
+  index: number
+  draft: string
+  saving: boolean
+  prefix: string
+  onDraftChange: (v: string) => void
+  onBlur: () => void
+  onImagesChange: (urls: string[]) => void
+  onRemove: () => void
+}) {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    setActivatorNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id: step.id })
+  const style: React.CSSProperties = {
+    transform: CSS.Translate.toString(transform),
+    transition,
+  }
+  return (
+    <div
+      ref={setNodeRef}
+      style={style}
+      className={`flex gap-3 rounded-md border bg-background p-3 ${
+        isDragging ? "relative z-10 opacity-80 shadow-lg" : ""
+      }`}
+    >
+      <div className="flex flex-col items-center gap-1">
+        <button
+          ref={setActivatorNodeRef}
+          type="button"
+          title="Чирж эрэмбэлэх"
+          className="flex cursor-grab touch-none flex-col items-center gap-1 rounded-md px-1 py-0.5 text-muted-foreground hover:bg-muted active:cursor-grabbing"
+          {...attributes}
+          {...listeners}
+        >
+          <GripVerticalIcon className="size-4" />
+          <span className="flex size-8 items-center justify-center rounded-full bg-primary text-sm font-semibold text-primary-foreground">
+            {index + 1}
+          </span>
+          <span className="sr-only">Чирж эрэмбэлэх</span>
+        </button>
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          title="Алхам устгах"
+          onClick={onRemove}
+        >
+          <Trash2Icon />
+          <span className="sr-only">Устгах</span>
+        </Button>
+      </div>
+      <div className="grid flex-1 gap-2">
+        <Textarea
+          rows={3}
+          className="text-base leading-relaxed"
+          placeholder={`${index + 1}-р алхам: юу хийх вэ…`}
+          value={draft}
+          onChange={(e) => onDraftChange(e.target.value)}
+          onBlur={onBlur}
+        />
+        <div className="flex items-start justify-between gap-2">
+          <ImageUploader
+            bucket="tech-card-images"
+            prefix={prefix}
+            urls={step.image_urls}
+            onChange={onImagesChange}
+            size="sm"
+          />
+          {saving && (
+            <span className="text-xs text-muted-foreground">
+              Хадгалж байна…
+            </span>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export default function TechCardDetailPage() {
   const supabase = React.useMemo(() => createClient(), [])
   const router = useRouter()
@@ -122,9 +241,22 @@ export default function TechCardDetailPage() {
 
   // Картын толгойн засвар (гарц, заавар)
   const [yieldG, setYieldG] = React.useState("")
-  const [instructions, setInstructions] = React.useState("")
   const [headerSaving, setHeaderSaving] = React.useState(false)
   const [headerSaved, setHeaderSaved] = React.useState(false)
+  // Цехийн зааврын алхмууд (0035): бүх цехийнх нэг жагсаалтад, цехээр шүүж
+  // харуулна. Текст blur дээр, зураг хуулмагц шууд DB-д бичигдэнэ
+  const [steps, setSteps] = React.useState<TechCardStationStep[]>([])
+  const [stepDrafts, setStepDrafts] = React.useState<Record<string, string>>({})
+  const [stepSaving, setStepSaving] = React.useState<string | null>(null)
+  // Чирэлт 6px хөдөлсний дараа эхэлнэ — энгийн дарах/товч ажиллахад саад болохгүй
+  const dndSensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  )
+  // Дэлгэцийн таб: орц/норм эсвэл цехийн заавар; зааврын хэсэгт нэг удаад
+  // нэг цех засагдана (бүгдийг зэрэг харуулахаар дэлгэц дүүрч ойлгомжгүй)
+  const [tab, setTab] = React.useState<"items" | "instructions">("items")
+  const [instrStation, setInstrStation] = React.useState<StationCode>("prep")
 
   const [newGroupName, setNewGroupName] = React.useState("")
   const [itemForms, setItemForms] = React.useState<Record<string, ItemForm>>({})
@@ -139,7 +271,7 @@ export default function TechCardDetailPage() {
   const [editNorms, setEditNorms] = React.useState<Record<string, string>>({})
 
   const load = React.useCallback(async () => {
-    const [cardRes, groupsRes] = await Promise.all([
+    const [cardRes, groupsRes, instrRes] = await Promise.all([
       supabase
         .from("tech_cards")
         .select("*, product:products(code, name)")
@@ -152,7 +284,16 @@ export default function TechCardDetailPage() {
         )
         .eq("tech_card_id", params.id)
         .order("sort_order"),
+      supabase
+        .from("tech_card_station_steps")
+        .select("*")
+        .eq("tech_card_id", params.id)
+        .order("station")
+        .order("sort_order"),
     ])
+    const st = (instrRes.data ?? []) as TechCardStationStep[]
+    setSteps(st)
+    setStepDrafts(Object.fromEntries(st.map((x) => [x.id, x.text])))
     if (cardRes.error) {
       setLoadError(cardRes.error.message)
     } else {
@@ -160,7 +301,6 @@ export default function TechCardDetailPage() {
       const c = cardRes.data as Card
       setCard(c)
       setYieldG(c.portion_yield_g === null ? "" : String(c.portion_yield_g))
-      setInstructions(c.instructions ?? "")
     }
     const gs = (groupsRes.data ?? []) as GroupRow[]
     gs.forEach((g) => g.items.sort((a, b) => a.sort_order - b.sort_order))
@@ -264,7 +404,7 @@ export default function TechCardDetailPage() {
     setActionError(null)
     const { error } = await supabase
       .from("tech_cards")
-      .update({ portion_yield_g, instructions: instructions.trim() || null })
+      .update({ portion_yield_g })
       .eq("id", card.id)
     setHeaderSaving(false)
     if (error) {
@@ -273,6 +413,104 @@ export default function TechCardDetailPage() {
     }
     setHeaderSaved(true)
     setTimeout(() => setHeaderSaved(false), 2000)
+  }
+
+  // --- Цехийн зааврын алхмууд (0035) ---
+  const stepsOf = (station: StationCode) =>
+    steps
+      .filter((x) => x.station === station)
+      .sort((a, b) => a.sort_order - b.sort_order)
+
+  async function addStep(station: StationCode) {
+    if (!card) return
+    const maxSort = Math.max(0, ...stepsOf(station).map((x) => x.sort_order))
+    const { error } = await supabase.from("tech_card_station_steps").insert({
+      tech_card_id: card.id,
+      station,
+      sort_order: maxSort + 1,
+      text: "",
+    })
+    if (error) {
+      setActionError(error.message)
+      return
+    }
+    load()
+  }
+
+  /** Текстийг blur дээр хадгална — өөрчлөгдөөгүй бол DB рүү явахгүй */
+  async function saveStepText(step: TechCardStationStep) {
+    const text = (stepDrafts[step.id] ?? "").trimEnd()
+    if (text === step.text) return
+    setStepSaving(step.id)
+    const { error } = await supabase
+      .from("tech_card_station_steps")
+      .update({ text })
+      .eq("id", step.id)
+    setStepSaving(null)
+    if (error) {
+      setActionError(error.message)
+      return
+    }
+    setSteps((list) =>
+      list.map((x) => (x.id === step.id ? { ...x, text } : x)),
+    )
+  }
+
+  async function setStepImages(step: TechCardStationStep, urls: string[]) {
+    setSteps((list) =>
+      list.map((x) => (x.id === step.id ? { ...x, image_urls: urls } : x)),
+    )
+    const { error } = await supabase
+      .from("tech_card_station_steps")
+      .update({ image_urls: urls })
+      .eq("id", step.id)
+    if (error) setActionError(error.message)
+  }
+
+  async function removeStep(step: TechCardStationStep) {
+    const { error } = await supabase
+      .from("tech_card_station_steps")
+      .delete()
+      .eq("id", step.id)
+    if (error) {
+      setActionError(error.message)
+      return
+    }
+    // Алхмын зургуудыг Storage-оос цэвэрлэнэ (хуучин хувилбар ижил URL
+    // хуваалцаж болох ч хуучин хувилбар засагддаггүй тул хүлээн зөвшөөрнө)
+    for (const u of step.image_urls) void removeImage(supabase, "tech-card-images", u)
+    load()
+  }
+
+  /** Чирж буулгасны дараа тухайн цехийн алхмуудыг 1..n дахин дугаарлана.
+   *  Эхлээд локал төлөвөө шинэчилж (чирэлт даруй суурших), дараа нь DB-д
+   *  бичнэ; алдаа гарвал дахин ачаалж буцаана */
+  async function onStepDragEnd(station: StationCode, e: DragEndEvent) {
+    const { active, over } = e
+    if (!over || active.id === over.id) return
+    const list = stepsOf(station)
+    const from = list.findIndex((x) => x.id === active.id)
+    const to = list.findIndex((x) => x.id === over.id)
+    if (from < 0 || to < 0) return
+    const reordered = arrayMove(list, from, to).map((x, i) => ({
+      ...x,
+      sort_order: i + 1,
+    }))
+    const byId = new Map(reordered.map((x) => [x.id, x]))
+    setSteps((all) => all.map((x) => byId.get(x.id) ?? x))
+    const results = await Promise.all(
+      reordered.map((x) =>
+        supabase
+          .from("tech_card_station_steps")
+          .update({ sort_order: x.sort_order })
+          .eq("id", x.id),
+      ),
+    )
+    const err = results.find((r) => r.error)?.error
+    if (err) {
+      setActionError(err.message)
+      load()
+    }
   }
 
   async function addGroup() {
@@ -493,11 +731,28 @@ export default function TechCardDetailPage() {
           product_id: card.product_id,
           version: nextVersion,
           portion_yield_g: card.portion_yield_g,
-          instructions: card.instructions,
         })
         .select("id")
         .single()
       if (cardErr) throw cardErr
+
+      // Цехийн зааврын алхмууд (0035) шинэ хувилбарт хуулагдана. Зургийн
+      // URL-ууд Storage-ийн нэг файлыг заана — хуучин хувилбар засагддаггүй
+      // тул асуудалгүй
+      if (steps.length > 0) {
+        const { error: stepErr } = await supabase
+          .from("tech_card_station_steps")
+          .insert(
+            steps.map((x) => ({
+              tech_card_id: newCard.id,
+              station: x.station,
+              sort_order: x.sort_order,
+              text: x.text,
+              image_urls: x.image_urls,
+            })),
+          )
+        if (stepErr) throw stepErr
+      }
 
       for (const g of groups) {
         const { data: newGroup, error: groupErr } = await supabase
@@ -598,6 +853,10 @@ export default function TechCardDetailPage() {
     )
   }
 
+  const filledStations = CANONICAL_STATIONS.filter((st) =>
+    steps.some((x) => x.station === st),
+  )
+
   if (loadError || !card) {
     return (
       <div className="rounded-lg border border-destructive/50 bg-destructive/10 p-4 text-sm">
@@ -664,41 +923,46 @@ export default function TechCardDetailPage() {
         </div>
       </div>
 
-      {/* Толгой: гарцын жин + заавар */}
-      <div className="grid gap-3 rounded-lg border p-4">
-        <div className="grid gap-3 sm:grid-cols-2">
-          <div className="grid gap-2">
-            <Label htmlFor="yield_g">1 порцын гарцын жин (гр)</Label>
-            <Input
-              id="yield_g"
-              type="number"
-              min="0"
-              placeholder="350"
-              value={yieldG}
-              onChange={(e) => setYieldG(e.target.value)}
-            />
-          </div>
-        </div>
+      <Tabs
+        value={tab}
+        onValueChange={(v) => setTab(v as "items" | "instructions")}
+        className="gap-4"
+      >
+        <TabsList>
+          <TabsTrigger value="items">Орц, норм</TabsTrigger>
+          <TabsTrigger value="instructions">
+            Цехийн заавар
+            {filledStations.length > 0 && (
+              <Badge variant="secondary" className="ml-1">
+                {filledStations.length}/{CANONICAL_STATIONS.length}
+              </Badge>
+            )}
+          </TabsTrigger>
+        </TabsList>
+
+      <TabsContent value="items" className="flex flex-col gap-4">
+      {/* Толгой: гарцын жин */}
+      <div className="flex flex-wrap items-end gap-3 rounded-lg border p-4">
         <div className="grid gap-2">
-          <Label htmlFor="instructions">Заавар</Label>
-          <Textarea
-            id="instructions"
-            rows={4}
-            placeholder={"1. Махаа нарийн зорно\n2. Соусаа найруулна\n3. ..."}
-            value={instructions}
-            onChange={(e) => setInstructions(e.target.value)}
+          <Label htmlFor="yield_g">1 порцын гарцын жин (гр)</Label>
+          <Input
+            id="yield_g"
+            type="number"
+            min="0"
+            placeholder="350"
+            className="w-40"
+            value={yieldG}
+            onChange={(e) => setYieldG(e.target.value)}
           />
         </div>
-        <div className="flex justify-end">
-          <Button onClick={saveHeader} disabled={headerSaving}>
-            <SaveIcon />
-            {headerSaving
-              ? "Хадгалж байна..."
-              : headerSaved
-                ? "Хадгалагдлаа ✓"
-                : "Хадгалах"}
-          </Button>
-        </div>
+        <Button variant="outline" onClick={saveHeader} disabled={headerSaving}>
+          <SaveIcon />
+          {headerSaving
+            ? "Хадгалж байна..."
+            : headerSaved
+              ? "Хадгалагдлаа ✓"
+              : "Хадгалах"}
+        </Button>
       </div>
 
       {/* Орцын бүлгүүд */}
@@ -1064,6 +1328,111 @@ export default function TechCardDetailPage() {
           Бүлэг нэмэх
         </Button>
       </div>
+      </TabsContent>
+
+      {/* Цех тус бүрийн зааврын алхмууд (0035): зүүн талд цехийн жагсаалт
+          (алхмын тоо), баруун талд сонгосон цехийн алхмууд — алхам бүр
+          тусдаа текст + өөрийн зургуудтай. Цехийн дэлгэц дээр энэ хоолны
+          картанд өөрийн цехийн алхмууд дугаарлагдаж гарна */}
+      <TabsContent value="instructions">
+        <div className="grid gap-4 lg:grid-cols-[240px_1fr]">
+          <div className="flex gap-2 overflow-x-auto lg:flex-col lg:overflow-visible">
+            {CANONICAL_STATIONS.map((st) => {
+              const list = stepsOf(st)
+              const imgs = list.reduce((n, x) => n + x.image_urls.length, 0)
+              const active = instrStation === st
+              return (
+                <button
+                  key={st}
+                  type="button"
+                  onClick={() => setInstrStation(st)}
+                  className={`flex shrink-0 items-center justify-between gap-3 rounded-lg border px-3 py-2 text-left transition-colors ${
+                    active
+                      ? "border-primary bg-primary/5"
+                      : "hover:bg-muted"
+                  }`}
+                >
+                  <span className="grid">
+                    <span className="font-medium">{STATION_LABELS[st]}</span>
+                    <span className="text-xs text-muted-foreground">
+                      {list.length === 0
+                        ? "Хоосон"
+                        : `${list.length} алхам${imgs > 0 ? ` · ${imgs} зураг` : ""}`}
+                    </span>
+                  </span>
+                  <span
+                    className={`size-2 shrink-0 rounded-full ${
+                      list.length > 0 ? "bg-emerald-500" : "bg-muted-foreground/30"
+                    }`}
+                  />
+                </button>
+              )
+            })}
+          </div>
+
+          {(() => {
+            const st = instrStation
+            const list = stepsOf(st)
+            return (
+              <div className="rounded-lg border">
+                <div className="flex flex-wrap items-center justify-between gap-2 border-b px-4 py-3">
+                  <div>
+                    <p className="font-medium">
+                      {STATION_LABELS[st]} цехийн заавар
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      {STATION_LABELS[st]} цехийн дэлгэц дээр «
+                      {card.product?.name}» хоолны картанд дугаарлагдаж
+                      харагдана. Текст талбараас гармагц, зураг хуулмагц
+                      хадгалагдана.
+                    </p>
+                  </div>
+                  <Button onClick={() => addStep(st)}>
+                    <PlusIcon />
+                    Алхам нэмэх
+                  </Button>
+                </div>
+                {list.length === 0 ? (
+                  <p className="p-6 text-center text-sm text-muted-foreground">
+                    Алхам байхгүй. «Алхам нэмэх» дарж эхний алхмаа бичнэ үү.
+                  </p>
+                ) : (
+                  <DndContext
+                    sensors={dndSensors}
+                    collisionDetection={closestCenter}
+                    onDragEnd={(e) => onStepDragEnd(st, e)}
+                  >
+                    <SortableContext
+                      items={list.map((x) => x.id)}
+                      strategy={verticalListSortingStrategy}
+                    >
+                      <div className="grid gap-3 p-4">
+                        {list.map((step, i) => (
+                          <SortableStepCard
+                            key={step.id}
+                            step={step}
+                            index={i}
+                            draft={stepDrafts[step.id] ?? step.text}
+                            saving={stepSaving === step.id}
+                            prefix={`${card.id}/${st}`}
+                            onDraftChange={(v) =>
+                              setStepDrafts((d) => ({ ...d, [step.id]: v }))
+                            }
+                            onBlur={() => saveStepText(step)}
+                            onImagesChange={(urls) => setStepImages(step, urls)}
+                            onRemove={() => removeStep(step)}
+                          />
+                        ))}
+                      </div>
+                    </SortableContext>
+                  </DndContext>
+                )}
+              </div>
+            )
+          })()}
+        </div>
+      </TabsContent>
+      </Tabs>
 
       {actionError && <p className="text-sm text-destructive">{actionError}</p>}
     </div>

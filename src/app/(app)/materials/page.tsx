@@ -5,6 +5,7 @@ import Link from "next/link";
 
 import { createClient } from "@/lib/supabase/client";
 import { formatUnitQty } from "@/lib/format-qty";
+import { ImageUploader } from "@/components/image-uploader";
 import {
   BASE_UNIT_LABELS,
   CANONICAL_UNITS,
@@ -78,6 +79,7 @@ type FormState = {
   loss_pct: string; // хувиар (20 = 20%); хоосон = 0
   kind: MaterialKind; // 0026: бэлдэц бол source_station заавал
   source_station: StationCode | ""; // бэлдэцийг үйлдвэрлэдэг цех
+  image_url: string; // Storage public URL (0033); хоосон = зураггүй
 };
 
 const EMPTY_FORM: FormState = {
@@ -89,6 +91,7 @@ const EMPTY_FORM: FormState = {
   loss_pct: "",
   kind: "raw",
   source_station: "",
+  image_url: "",
 };
 
 // Замын цехүүдийн каноник дараалал + богино тэмдэг («Цехүүд» багана)
@@ -125,6 +128,7 @@ type Payload = {
   loss_pct: number;
   kind: MaterialKind;
   source_station: StationCode | null;
+  image_url: string | null;
 };
 
 /** JSON object/array-г материалын мөрүүд болгон хувиргана */
@@ -189,6 +193,7 @@ function parseMaterialsJson(text: string): Payload[] {
       loss_pct,
       kind: "raw" as const,
       source_station: null,
+      image_url: null,
     };
   });
 }
@@ -236,6 +241,7 @@ function toPayload(form: FormState): Payload | { error: string } {
     source_station: isIntermediate
       ? (form.source_station as StationCode)
       : null,
+    image_url: form.image_url || null,
   };
 }
 
@@ -316,6 +322,19 @@ export default function MaterialsPage() {
   }, [supabase, showInactive]);
 
   // Мөрөн дээрх хорогдлыг blur/Enter дээр хадгална
+  /** Жагсаалтын мөрөөс зураг хуулсан/устгасан — шууд DB-д бичиж, локал
+   *  мөрийг шинэчилнэ (бүхэл жагсаалт дахин ачаалахгүй) */
+  async function saveRowImage(row: Material, image_url: string | null) {
+    setRows((list) =>
+      list.map((m) => (m.id === row.id ? { ...m, image_url } : m)),
+    );
+    const { error } = await supabase
+      .from("materials")
+      .update({ image_url })
+      .eq("id", row.id);
+    if (error) setLoadError(`${row.name}: ${error.message}`);
+  }
+
   async function saveRowLoss(row: Material) {
     const raw = (editLoss[row.id] ?? "").trim();
     let pct = 0;
@@ -422,6 +441,7 @@ export default function MaterialsPage() {
           : "",
       kind: row.kind,
       source_station: row.source_station ?? "",
+      image_url: row.image_url ?? "",
     });
     setSaveError(null);
     setDialogOpen(true);
@@ -645,6 +665,7 @@ export default function MaterialsPage() {
               <TableHeader>
                 <TableRow>
                   <TableHead className="w-12">№</TableHead>
+                  <TableHead className="w-16">Зураг</TableHead>
                   <TableHead className="w-24">Код</TableHead>
                   <TableHead className="w-28">Үндсэн код</TableHead>
                   <TableHead>Нэр</TableHead>
@@ -658,10 +679,10 @@ export default function MaterialsPage() {
               </TableHeader>
               <TableBody>
                 {loading
-                  ? renderSkeleton(10)
+                  ? renderSkeleton(11)
                   : rawRows.length === 0
                     ? renderEmpty(
-                        10,
+                        11,
                         rows.some((r) => r.kind === "raw"),
                         "Түүхий эд бүртгэгдээгүй байна",
                       )
@@ -672,6 +693,20 @@ export default function MaterialsPage() {
                         >
                           <TableCell className="text-xs text-muted-foreground">
                             {i + 1}
+                          </TableCell>
+                          <TableCell>
+                            {/* Мөр дээр шууд зураг хуулах/солих/устгах —
+                                Storage-д хуулмагц DB-д бичигдэнэ */}
+                            <ImageUploader
+                              bucket="material-images"
+                              prefix={row.id}
+                              urls={row.image_url ? [row.image_url] : []}
+                              onChange={(urls) =>
+                                saveRowImage(row, urls[0] ?? null)
+                              }
+                              max={1}
+                              size="xs"
+                            />
                           </TableCell>
                           <TableCell className="font-mono text-xs">
                             {row.code}
@@ -735,6 +770,7 @@ export default function MaterialsPage() {
               <TableHeader>
                 <TableRow>
                   <TableHead className="w-12">№</TableHead>
+                  <TableHead className="w-16">Зураг</TableHead>
                   <TableHead className="w-24">Код</TableHead>
                   <TableHead className="w-28">Үндсэн код</TableHead>
                   <TableHead>Нэр</TableHead>
@@ -747,10 +783,10 @@ export default function MaterialsPage() {
               </TableHeader>
               <TableBody>
                 {loading
-                  ? renderSkeleton(9)
+                  ? renderSkeleton(10)
                   : intRows.length === 0
                     ? renderEmpty(
-                        9,
+                        10,
                         rows.some((r) => r.kind === "intermediate"),
                         "Бэлдэц бүртгэгдээгүй байна",
                       )
@@ -761,6 +797,20 @@ export default function MaterialsPage() {
                         >
                           <TableCell className="text-xs text-muted-foreground">
                             {i + 1}
+                          </TableCell>
+                          <TableCell>
+                            {/* Мөр дээр шууд зураг хуулах/солих/устгах —
+                                Storage-д хуулмагц DB-д бичигдэнэ */}
+                            <ImageUploader
+                              bucket="material-images"
+                              prefix={row.id}
+                              urls={row.image_url ? [row.image_url] : []}
+                              onChange={(urls) =>
+                                saveRowImage(row, urls[0] ?? null)
+                              }
+                              max={1}
+                              size="xs"
+                            />
                           </TableCell>
                           <TableCell className="font-mono text-xs">
                             {row.code}
@@ -830,6 +880,18 @@ export default function MaterialsPage() {
                 placeholder="Үхрийн мах"
                 value={form.name}
                 onChange={(e) => set("name", e.target.value)}
+              />
+            </div>
+            {/* Зураг (0033): Storage руу шууд хуулагдаж, URL нь
+                хадгалахад materials.image_url-д бичигдэнэ */}
+            <div className="grid gap-2">
+              <Label>Зураг</Label>
+              <ImageUploader
+                bucket="material-images"
+                prefix={editing?.id ?? "new"}
+                urls={form.image_url ? [form.image_url] : []}
+                onChange={(urls) => set("image_url", urls[0] ?? "")}
+                max={1}
               />
             </div>
             {/* Төрөл (0026): бэлдэц агуулахаас олгогдохгүй — source цехэд

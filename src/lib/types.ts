@@ -64,6 +64,7 @@ export type Material = {
   loss_pct: number
   kind: MaterialKind // migration 0026
   source_station: StationCode | null // бэлдэцийг үйлдвэрлэдэг цех
+  image_url: string | null // Storage public URL (migration 0033)
   is_active: boolean
   created_at: string
   updated_at: string
@@ -298,8 +299,23 @@ export type TechCard = {
   product_id: string
   version: number
   portion_yield_g: number | null // 1 порцын гарцын жин (гр)
-  instructions: string | null // олон мөрт заавар
+  instructions: string | null // ерөнхий олон мөрт заавар («== Бүлэг» хэсэгтэй)
   is_active: boolean // нэг product-д зөвхөн 1 идэвхтэй хувилбар
+  created_at: string
+  updated_at: string
+}
+
+// Цехийн зааврын алхам (migration 0035): ТК × цех бүрт дараалалтай алхмууд,
+// алхам бүр өөрийн тайлбар + зургуудтай (Storage public URL). Цехийн дэлгэц
+// өөрийн цехийн алхмуудыг хоолны карт дээр дугаарлаж харуулна.
+// tech_cards.instructions хуучин ерөнхий заавар — UI ашиглахаа больсон
+export type TechCardStationStep = {
+  id: string
+  tech_card_id: string
+  station: StationCode
+  sort_order: number
+  text: string
+  image_urls: string[]
   created_at: string
   updated_at: string
 }

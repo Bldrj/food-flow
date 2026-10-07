@@ -6,6 +6,7 @@ import Link from "next/link"
 import { createClient } from "@/lib/supabase/client"
 import { useDevUser } from "@/components/dev-user-provider"
 import { formatUnitQty } from "@/lib/format-qty"
+import { ImageThumb } from "@/components/image-uploader"
 import {
   BASE_UNIT_LABELS,
   MOVEMENT_TYPE_LABELS,
@@ -90,20 +91,37 @@ export default function WarehousePage() {
   const [adjustNote, setAdjustNote] = React.useState("")
   const [adjustSaving, setAdjustSaving] = React.useState(false)
   const [adjustError, setAdjustError] = React.useState<string | null>(null)
+  // Материалын зураг (0033) — stock_balances view-д байхгүй тул тусдаа авна
+  const [imageById, setImageById] = React.useState<Map<string, string>>(
+    new Map(),
+  )
 
   const load = React.useCallback(async () => {
     setLoading(true)
-    const { data, error } = await supabase
-      .from("stock_balances")
-      .select("*")
-      .eq("is_active", true)
-      .order("name")
+    const [{ data, error }, imgRes] = await Promise.all([
+      supabase
+        .from("stock_balances")
+        .select("*")
+        .eq("is_active", true)
+        .order("name"),
+      supabase
+        .from("materials")
+        .select("id, image_url")
+        .not("image_url", "is", null),
+    ])
     if (error) {
       setLoadError(error.message)
     } else {
       setLoadError(null)
       setRows(data as StockBalance[])
     }
+    setImageById(
+      new Map(
+        ((imgRes.data ?? []) as { id: string; image_url: string }[]).map(
+          (m) => [m.id, m.image_url],
+        ),
+      ),
+    )
     setLoading(false)
   }, [supabase])
 
@@ -312,6 +330,7 @@ export default function WarehousePage() {
         <Table>
           <TableHeader>
             <TableRow>
+              <TableHead className="w-14">Зураг</TableHead>
               <TableHead className="w-24">Код</TableHead>
               <TableHead>Нэр</TableHead>
               <TableHead className="w-28">Ангилал</TableHead>
@@ -323,7 +342,7 @@ export default function WarehousePage() {
             {loading ? (
               [...Array(5)].map((_, i) => (
                 <TableRow key={i}>
-                  {[...Array(5)].map((_, j) => (
+                  {[...Array(6)].map((_, j) => (
                     <TableCell key={j}>
                       <Skeleton className="h-4 w-full" />
                     </TableCell>
@@ -333,7 +352,7 @@ export default function WarehousePage() {
             ) : filtered.length === 0 ? (
               <TableRow>
                 <TableCell
-                  colSpan={5}
+                  colSpan={6}
                   className="h-24 text-center text-muted-foreground"
                 >
                   {rows.length === 0
@@ -348,6 +367,9 @@ export default function WarehousePage() {
                   className="cursor-pointer"
                   onClick={() => openDetail(row)}
                 >
+                  <TableCell>
+                    <ImageThumb url={imageById.get(row.material_id)} />
+                  </TableCell>
                   <TableCell className="font-mono text-xs">
                     {row.code}
                   </TableCell>
@@ -396,10 +418,16 @@ export default function WarehousePage() {
           {detail && (
             <>
               <DialogHeader>
-                <DialogTitle>
-                  {detail.name}{" "}
-                  <span className="font-mono text-sm text-muted-foreground">
-                    {detail.code}
+                <DialogTitle className="flex items-center gap-3">
+                  <ImageThumb
+                    url={imageById.get(detail.material_id)}
+                    size="lg"
+                  />
+                  <span>
+                    {detail.name}{" "}
+                    <span className="font-mono text-sm text-muted-foreground">
+                      {detail.code}
+                    </span>
                   </span>
                 </DialogTitle>
                 <DialogDescription>

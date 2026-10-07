@@ -16,6 +16,8 @@ import { useDevUser } from "@/components/dev-user-provider"
 import { today } from "@/lib/dev-date"
 import { formatUnitQty } from "@/lib/format-qty"
 import { MaterialPicker } from "@/components/material-picker"
+import { ImageThumb } from "@/components/image-uploader"
+import { StepViewer } from "@/components/step-viewer"
 import {
   PrepSheetExport,
   type PrepSheetFood,
@@ -36,6 +38,7 @@ import {
   type StationIntermediateRow,
   type StationTransfer,
   type StationWorkRow,
+  type TechCardStationStep,
 } from "@/lib/types"
 
 import { Badge } from "@/components/ui/badge"
@@ -62,6 +65,7 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Textarea } from "@/components/ui/textarea"
 import {
   ArrowRightIcon,
+  BookOpenIcon,
   CheckIcon,
   ClipboardCheckIcon,
   SendIcon,
@@ -71,29 +75,8 @@ import {
 
 type BatchRow = ProductionBatch & {
   product: { name: string; code: string } | null
-  tech_card: { version: number; instructions: string | null } | null
+  tech_card: { version: number } | null
 }
-
-// Зааврын "== Бүлгийн нэр" хэсгүүд (Excel импортын бүтэц)
-type InstructionSection = { title: string | null; text: string }
-
-function parseInstructions(text: string | null): InstructionSection[] {
-  if (!text) return []
-  const sections: InstructionSection[] = []
-  let cur: InstructionSection = { title: null, text: "" }
-  for (const line of text.split("\n")) {
-    if (line.startsWith("==")) {
-      if (cur.text.trim()) sections.push(cur)
-      cur = { title: line.replace(/^=+\s*/, "").trim(), text: "" }
-    } else {
-      cur.text += (cur.text ? "\n" : "") + line
-    }
-  }
-  if (cur.text.trim()) sections.push(cur)
-  return sections
-}
-
-const norm = (s: string) => s.trim().toLowerCase()
 
 // Замын каноник дараалал — савлагааны өмнөх "сүүлчийн ажлын цех"-ийг олоход
 const CANONICAL: StationCode[] = ["prep", "hot_aux", "hot", "packaging"]
@@ -212,9 +195,15 @@ export default function StationPage() {
   // (бүх хэрэглэгч хоолны Σ − үлдэгдэл) бодогдсон
   const [intWork, setIntWork] = React.useState<StationIntermediateRow[]>([])
   // ТК бүрийн бүх бүлгийн нэр — зааврын "ерөнхий" хэсгийг ялгахад
-  const [tkGroupNames, setTkGroupNames] = React.useState<
-    Map<string, Set<string>>
+  // Энэ цехийн зааврын алхмууд ТК бүрээр (0035): дараалалтай, зурагтай
+  const [tkSteps, setTkSteps] = React.useState<
+    Map<string, TechCardStationStep[]>
   >(new Map())
+  // Бүтэн дэлгэцийн алхам үзэгч: аль батчийн заавар, хэд дэх алхмаас
+  const [viewer, setViewer] = React.useState<{
+    batch: BatchRow
+    index: number
+  } | null>(null)
   const [progress, setProgress] = React.useState<BatchStationProgress[]>([])
   const [materials, setMaterials] = React.useState<Material[]>([])
   const [requests, setRequests] = React.useState<MaterialRequest[]>([])
@@ -260,7 +249,7 @@ export default function StationPage() {
       supabase
         .from("production_batches")
         .select(
-          "*, product:products(name, code), tech_card:tech_cards(version, instructions)",
+          "*, product:products(name, code), tech_card:tech_cards(version)",
         )
         .eq("production_date", date)
         .in("status", [...DAILY_DEMAND_STATUSES]),
@@ -320,25 +309,24 @@ export default function StationPage() {
     setRequests((reqRes.data ?? []) as MaterialRequest[])
     setTransfers((trRes.data ?? []) as StationTransfer[])
 
-    // ТК бүрийн бүх бүлгийн нэр (зааврын хэсэг аль цехийнх вэ гэдгийг ялгана)
+    // Өнөөдрийн ТК бүрийн ЭНЭ цехийн зааврын алхмууд (0035)
     if (batchRows.length > 0) {
       const tkIds = [...new Set(batchRows.map((b) => b.tech_card_id))]
-      const { data: tkGroups } = await supabase
-        .from("tech_card_groups")
-        .select("tech_card_id, name")
+      const { data: tkStepRows } = await supabase
+        .from("tech_card_station_steps")
+        .select("*")
+        .eq("station", station)
         .in("tech_card_id", tkIds)
-      const m = new Map<string, Set<string>>()
-      for (const g of (tkGroups ?? []) as {
-        tech_card_id: string
-        name: string
-      }[]) {
-        const set = m.get(g.tech_card_id) ?? new Set<string>()
-        set.add(norm(g.name))
-        m.set(g.tech_card_id, set)
+        .order("sort_order")
+      const m = new Map<string, TechCardStationStep[]>()
+      for (const r of (tkStepRows ?? []) as TechCardStationStep[]) {
+        const list = m.get(r.tech_card_id) ?? []
+        list.push(r)
+        m.set(r.tech_card_id, list)
       }
-      setTkGroupNames(m)
+      setTkSteps(m)
     } else {
-      setTkGroupNames(new Map())
+      setTkSteps(new Map())
     }
 
     // Гүйцэтгэлийн тэмдэглэгээ — бүх цехийнхыг авна (савлагаанд өмнөх цех
@@ -1180,7 +1168,8 @@ export default function StationPage() {
     const also = intAlsoFor.get(id) ?? []
     return (
       <div key={id}>
-        <p className="flex flex-wrap items-baseline gap-2 text-lg">
+        <p className="flex flex-wrap items-center gap-2 text-lg">
+          <ImageThumb url={materialById.get(id)?.image_url} />
           <span className="font-semibold">{any.intermediate_name}</span>
           <span className="font-semibold">
             {e.output
@@ -1223,7 +1212,16 @@ export default function StationPage() {
                 key={`${c.component_id}-${i}`}
                 className="flex items-center justify-between gap-2 border-b py-1 last:border-b-0"
               >
-                <span>{c.component_name}</span>
+                <span className="flex items-center gap-2">
+                  <ImageThumb
+                    url={
+                      c.component_id
+                        ? materialById.get(c.component_id)?.image_url
+                        : null
+                    }
+                  />
+                  {c.component_name}
+                </span>
                 <span className="flex items-center gap-2">
                   <span className="font-semibold">
                     {formatWorkQty(Number(c.qty), c.component_unit ?? "kg")}
@@ -1334,12 +1332,15 @@ export default function StationPage() {
                 >
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <div>
-                      <p>
-                        {mat?.name ?? "—"} —{" "}
-                        <span className="font-semibold">
-                          {mat
-                            ? formatUnitQty(Number(r.qty), mat.base_unit)
-                            : r.qty}
+                      <p className="flex items-center gap-2">
+                        <ImageThumb url={mat?.image_url} size="sm" />
+                        <span>
+                          {mat?.name ?? "—"} —{" "}
+                          <span className="font-semibold">
+                            {mat
+                              ? formatUnitQty(Number(r.qty), mat.base_unit)
+                              : r.qty}
+                          </span>
                         </span>
                       </p>
                       {(r.note || r.fulfilled_by) && (
@@ -1472,7 +1473,8 @@ export default function StationPage() {
               const diff = total - norm
               return (
                 <div key={matId}>
-                  <p className="flex flex-wrap items-baseline gap-2 text-lg">
+                  <p className="flex flex-wrap items-center gap-2 text-lg">
+                    <ImageThumb url={mat?.image_url} />
                     <span className="font-semibold">{mat?.name ?? "—"}</span>
                     <span className="font-semibold">
                       {mat ? formatWorkQty(total, mat.base_unit) : total}
@@ -1528,7 +1530,9 @@ export default function StationPage() {
                   key={t.id}
                   className="flex flex-wrap items-center justify-between gap-2 border-b pb-2 last:border-b-0 last:pb-0"
                 >
-                  <p>
+                  <p className="flex items-center gap-2">
+                    <ImageThumb url={mat?.image_url} size="sm" />
+                    <span>
                     {mat?.name ?? "—"} —{" "}
                     <span className="font-semibold">
                       {mat
@@ -1538,6 +1542,7 @@ export default function StationPage() {
                     <span className="text-xs text-muted-foreground">
                       → {STATION_LABELS[t.to_station]}
                       {t.note ? ` · ${t.note}` : ""}
+                    </span>
                     </span>
                   </p>
                   {!t.received_at && (
@@ -1598,6 +1603,17 @@ export default function StationPage() {
                   </span>
                 </p>
                 <div className="flex items-center gap-2">
+                  {/* Заавар байвал бүтэн дэлгэцээр алхам-алхмаар нээх */}
+                  {(tkSteps.get(b.tech_card_id)?.length ?? 0) > 0 && (
+                    <Button
+                      size="lg"
+                      variant="outline"
+                      onClick={() => setViewer({ batch: b, index: 0 })}
+                    >
+                      <BookOpenIcon />
+                      Заавар
+                    </Button>
+                  )}
                   {/* Хоол бүрт НЭГ товч: шилжүүлэх мөр үлдсэн бол «Шилжүүлэх»
                       (мөр бүр замынхаа дараагийн цех рүү, нормоор бөглөгдөнө;
                       бүрэн шилжмэгц автоматаар дуусна), шилжүүлэх зүйлгүй
@@ -1698,7 +1714,12 @@ export default function StationPage() {
                                     key={itemKey(r)}
                                     className="flex items-center justify-between gap-2 border-b py-1 text-lg last:border-b-0"
                                   >
-                                    <span>{r.material_name}</span>
+                                    <span className="flex items-center gap-2">
+                                <ImageThumb
+                                  url={materialById.get(r.material_id)?.image_url}
+                                />
+                                {r.material_name}
+                              </span>
                                     <span className="flex items-center gap-2">
                                       <span className="font-semibold">
                                         {formatWorkQty(
@@ -1766,7 +1787,12 @@ export default function StationPage() {
                               key={r.material_id + r.group_id}
                               className="flex items-center justify-between gap-2 border-b py-1 text-lg last:border-b-0"
                             >
-                              <span>{r.material_name}</span>
+                              <span className="flex items-center gap-2">
+                                <ImageThumb
+                                  url={materialById.get(r.material_id)?.image_url}
+                                />
+                                {r.material_name}
+                              </span>
                               <span className="flex items-center gap-2">
                                 <span className="font-semibold">
                                   {formatWorkQty(Number(r.qty), r.base_unit)}
@@ -1802,46 +1828,89 @@ export default function StationPage() {
                 </div>
               )}
 
-              {/* Технологийн дараалал: энэ цехийн бүлгүүдэд хамаарах болон
-                  ерөнхий (аль ч бүлэгт хамааргүй) зааврын хэсгүүд */}
+              {/* Технологийн дараалал (0035): алхмууд зурагтай карт
+                  хэлбэрээр — таблет дээр 2 багана, карт дээр дарвал тэр
+                  алхмаас бүтэн дэлгэцээр нээгдэнэ */}
               {(() => {
-                const allNames =
-                  tkGroupNames.get(b.tech_card_id) ?? new Set<string>()
-                const stationNames = new Set(
-                  rows.map((r) => norm(r.group_name)),
-                )
-                const sections = parseInstructions(
-                  b.tech_card?.instructions ?? null,
-                ).filter((sec) =>
-                  sec.title === null
-                    ? true
-                    : stationNames.has(norm(sec.title)) ||
-                      !allNames.has(norm(sec.title)),
-                )
-                if (sections.length === 0) return null
+                const list = tkSteps.get(b.tech_card_id) ?? []
+                if (list.length === 0) return null
                 return (
                   <div className="border-t p-4">
-                    <p className="mb-2 text-sm font-medium text-muted-foreground">
-                      Технологийн дараалал
-                    </p>
-                    <div className="grid gap-3">
-                      {sections.map((sec, i) => (
-                        <div key={i}>
-                          {sec.title && (
-                            <p className="font-medium">{sec.title}</p>
-                          )}
-                          <p className="whitespace-pre-line text-base leading-relaxed">
-                            {sec.text}
-                          </p>
-                        </div>
-                      ))}
+                    <div className="mb-3 flex items-center justify-between gap-2">
+                      <p className="text-sm font-medium text-muted-foreground">
+                        Технологийн дараалал · {list.length} алхам
+                      </p>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => setViewer({ batch: b, index: 0 })}
+                      >
+                        <BookOpenIcon />
+                        Бүтэн дэлгэцээр
+                      </Button>
                     </div>
+                    <ol className="grid gap-3 md:grid-cols-2">
+                      {list.map((step, i) => (
+                        <li key={step.id}>
+                          <button
+                            type="button"
+                            onClick={() => setViewer({ batch: b, index: i })}
+                            className="flex w-full gap-3 rounded-lg border p-3 text-left transition-colors hover:bg-muted/50 active:bg-muted"
+                          >
+                            <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-primary text-base font-semibold text-primary-foreground">
+                              {i + 1}
+                            </span>
+                            <span className="flex min-w-0 flex-1 gap-3">
+                              <span className="line-clamp-4 flex-1 whitespace-pre-line text-base leading-relaxed">
+                                {step.text || "—"}
+                              </span>
+                              {step.image_urls[0] && (
+                                <span className="relative size-20 shrink-0 overflow-hidden rounded-md border bg-muted">
+                                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                                  <img
+                                    src={step.image_urls[0]}
+                                    alt=""
+                                    className="size-full object-cover"
+                                  />
+                                  {step.image_urls.length > 1 && (
+                                    <span className="absolute right-1 bottom-1 rounded bg-black/60 px-1 text-xs text-white">
+                                      +{step.image_urls.length - 1}
+                                    </span>
+                                  )}
+                                </span>
+                              )}
+                            </span>
+                          </button>
+                        </li>
+                      ))}
+                    </ol>
                   </div>
                 )
               })()}
             </div>
           )
         })
+      )}
+
+      {viewer && (
+        <StepViewer
+          title={viewer.batch.product?.name ?? "—"}
+          subtitle={`${viewer.batch.total_qty} порц · ${STATION_LABELS[station]} цехийн заавар`}
+          steps={tkSteps.get(viewer.batch.tech_card_id) ?? []}
+          initialIndex={viewer.index}
+          storageKey={`${viewer.batch.id}|${station}`}
+          ingredients={[...(workByBatch.get(viewer.batch.id) ?? [])]
+            .sort(
+              (a, x) =>
+                a.group_sort - x.group_sort || a.item_sort - x.item_sort,
+            )
+            .map((r) => ({
+              group: r.group_name,
+              name: r.material_name,
+              qty: formatWorkQty(Number(r.qty), r.base_unit),
+            }))}
+          onClose={() => setViewer(null)}
+        />
       )}
 
       {/* Материал нэхэмжлэх — хүлээн авагч ТК-ийн замаас автоматаар:
