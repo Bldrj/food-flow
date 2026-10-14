@@ -6,6 +6,7 @@ import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
 import { formatUnitQty } from "@/lib/format-qty";
 import { ImageUploader } from "@/components/image-uploader";
+import { MaterialsExport } from "@/components/materials-export";
 import {
   BASE_UNIT_LABELS,
   CANONICAL_UNITS,
@@ -255,6 +256,7 @@ export default function MaterialsPage() {
   const [loading, setLoading] = React.useState(true);
   const [loadError, setLoadError] = React.useState<string | null>(null);
   const [search, setSearch] = React.useState("");
+  const [activeKind, setActiveKind] = React.useState<MaterialKind>("raw");
   const [showInactive, setShowInactive] = React.useState(false);
   const [categoryFilter, setCategoryFilter] = React.useState<string>("all");
 
@@ -581,7 +583,14 @@ export default function MaterialsPage() {
             Хүнс, сав баглаа болон бусад материалын лавлах бүртгэл
           </p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
+          <MaterialsExport
+            rows={activeKind === "raw" ? rawRows : intRows}
+            kind={activeKind}
+            categoryPaths={categoryPaths}
+            stationsByMaterial={stationsByMaterial}
+            disabled={loading || loadError !== null}
+          />
           <Button
             variant="outline"
             render={<Link href="/materials/categories" />}
@@ -649,7 +658,10 @@ export default function MaterialsPage() {
         </div>
       )}
 
-      <Tabs defaultValue="raw">
+      <Tabs
+        value={activeKind}
+        onValueChange={(value) => setActiveKind(value as MaterialKind)}
+      >
         <TabsList>
           <TabsTrigger value="raw">
             Түүхий эд{!loading && ` (${rawRows.length})`}
