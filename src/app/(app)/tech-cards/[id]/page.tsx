@@ -99,7 +99,7 @@ const INPUT_UNITS: Record<CanonicalUnit, { unit: string; rate: number }[]> = {
 /** base_unit-ээр хадгалсан тоог уншихад эвтэйхэн (1-ээс бага бол гр/мл) харуулна */
 function formatItemQty(qty: number, baseUnit: CanonicalUnit): string {
   const fmt = (n: number) =>
-    Number(n.toFixed(2)).toLocaleString("en-US", { maximumFractionDigits: 2 })
+    Number(n.toFixed(3)).toLocaleString("en-US", { maximumFractionDigits: 3 })
   if ((baseUnit === "kg" || baseUnit === "l") && Math.abs(qty) < 1) {
     return `${fmt(qty * 1000)} ${baseUnit === "kg" ? "гр" : "мл"}`
   }
