@@ -151,8 +151,8 @@ function toDisplayQty(
 
 
 function formatQty(n: number): string {
-  return Number(n.toFixed(2)).toLocaleString("en-US", {
-    maximumFractionDigits: 2,
+  return Number(n.toFixed(3)).toLocaleString("en-US", {
+    maximumFractionDigits: 3,
   })
 }
 
