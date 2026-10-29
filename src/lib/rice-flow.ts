@@ -59,7 +59,13 @@ export function riceFlow(materials: readonly Material[], work: readonly StationW
         }
       }
     }
-    return { code, material, grossKg: Number(output?.gross_qty ?? 0), leftoverKg: Number(output?.leftover_qty ?? 0),
+    // Recipe components already include the material percentage exactly once.
+    const grainCodes = new Set(['2-001', '2-297', '2-178'])
+    const grains = new Set(materials.filter(m => grainCodes.has(m.code)).map(m => m.id))
+    const components = intermediate.filter(r => r.intermediate_id === material?.id && r.component_id && grains.has(r.component_id))
+    const unique = new Map(components.map(r => [`${r.component_id}:${r.sort_order}`, Number(r.qty)]))
+    const dryKg = components.length ? [...unique.values()].reduce((a, b) => a + b, 0) : null
+    return { code, material, dryKg, grossKg: Number(output?.gross_qty ?? 0), leftoverKg: Number(output?.leftover_qty ?? 0),
       cookKg: Number(output?.net_qty ?? 0), required, sent, received }
   })
 }

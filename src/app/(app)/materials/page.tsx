@@ -174,11 +174,11 @@ function parseMaterialsJson(text: string): Payload[] {
     if (item.loss_pct !== undefined && item.loss_pct !== null) {
       if (
         typeof item.loss_pct !== "number" ||
-        item.loss_pct < 0 ||
+        item.loss_pct <= -1 ||
         item.loss_pct > 5
       ) {
         throw new Error(
-          `${i + 1}-р элементийн "loss_pct" нь 0–5 хоорондын коэффициент байх ёстой (0.2 = 20%)`,
+          `${i + 1}-р элементийн "loss_pct" нь −1-ээс их, 5 хүртэлх коэффициент байх ёстой (0.2 = 20%)`,
         );
       }
       loss_pct = item.loss_pct;
@@ -215,10 +215,10 @@ function toPayload(form: FormState): Payload | { error: string } {
   const loss = form.loss_pct.trim();
   if (loss !== "") {
     const n = Number(loss);
-    if (!Number.isFinite(n) || n < 0 || n > 500) {
-      return { error: "Хорогдлын хувь 0–500 хооронд байх ёстой" };
+    if (!Number.isFinite(n) || n <= -100 || n > 500) {
+      return { error: "Хорогдлын хувь −100-аас их, 500 хүртэл байх ёстой" };
     }
-    loss_pct = Number((n / 100).toFixed(4));
+    loss_pct = Number((n / 100).toFixed(8));
   }
   // Бэлдэц заавал үйлдвэрлэдэг цехтэй (0026-ийн check constraint).
   // Ангилал/хорогдол бэлдэцэд хамаарахгүй: kind өөрөө ангилал нь, харин
@@ -301,8 +301,8 @@ export default function MaterialsPage() {
         Object.fromEntries(
           mats.map((m) => [
             m.id,
-            Number(m.loss_pct) > 0
-              ? String(Number((Number(m.loss_pct) * 100).toFixed(2)))
+            Number(m.loss_pct) !== 0
+              ? String(Number((Number(m.loss_pct) * 100).toFixed(4)))
               : "",
           ]),
         ),
@@ -342,18 +342,18 @@ export default function MaterialsPage() {
     let pct = 0;
     if (raw !== "") {
       const n = Number(raw);
-      if (!Number.isFinite(n) || n < 0 || n > 500) {
-        setLoadError(`${row.name}: хорогдлын хувь 0–500 хооронд байх ёстой`);
+      if (!Number.isFinite(n) || n <= -100 || n > 500) {
+        setLoadError(`${row.name}: хорогдлын хувь −100-аас их, 500 хүртэл байх ёстой`);
         setEditLoss((q) => ({
           ...q,
           [row.id]:
-            Number(row.loss_pct) > 0
-              ? String(Number((Number(row.loss_pct) * 100).toFixed(2)))
+            Number(row.loss_pct) !== 0
+              ? String(Number((Number(row.loss_pct) * 100).toFixed(4)))
               : "",
         }));
         return;
       }
-      pct = Number((n / 100).toFixed(4));
+      pct = Number((n / 100).toFixed(8));
     }
     if (pct === Number(row.loss_pct)) return;
     const { error } = await supabase
@@ -438,8 +438,8 @@ export default function MaterialsPage() {
       category_id: row.category_id ?? "none",
       min_stock: row.min_stock === null ? "" : String(row.min_stock),
       loss_pct:
-        Number(row.loss_pct) > 0
-          ? String(Number((Number(row.loss_pct) * 100).toFixed(2)))
+        Number(row.loss_pct) !== 0
+          ? String(Number((Number(row.loss_pct) * 100).toFixed(4)))
           : "",
       kind: row.kind,
       source_station: row.source_station ?? "",
@@ -745,7 +745,7 @@ export default function MaterialsPage() {
                           <TableCell>
                             <Input
                               type="number"
-                              min="0"
+                              min="-99.9999"
                               step="any"
                               placeholder="0"
                               className="h-8 w-20"
@@ -1026,7 +1026,7 @@ export default function MaterialsPage() {
                   <Input
                     id="loss_pct"
                     type="number"
-                    min="0"
+                    min="-99.9999"
                     step="any"
                     placeholder="20"
                     value={form.loss_pct}

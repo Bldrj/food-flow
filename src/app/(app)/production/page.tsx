@@ -606,12 +606,11 @@ export default function ProductionPage() {
                           </TableCell>
                           <TableCell>
                             {formatUnitQty(n.issue_need, n.base_unit)}
-                            {Number(n.loss_pct) > 0 && (
+                            {Number(n.loss_pct) !== 0 && (
                               <span className="ml-1 text-xs text-muted-foreground">
-                                (цэвэр{" "}
-                                {formatUnitQty(n.netto_need, n.base_unit)} +
+                                (материалын хувь: {" "}
                                 {Number(
-                                  (Number(n.loss_pct) * 100).toFixed(2),
+                                  (Number(n.loss_pct) * 100).toFixed(4),
                                 )}
                                 %)
                               </span>

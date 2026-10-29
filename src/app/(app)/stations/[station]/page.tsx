@@ -117,6 +117,7 @@ const EMPTY_REQUEST_FORM: RequestForm = {
 type RecipeRow = {
   component_id: string
   qty_per_output: number
+  loss_applied?: boolean
 }
 
 // Хоол бүрийн бөөн шилжүүлгийн мөр: материал бүр замынхаа ДАРААГИЙН цех рүү,
@@ -282,7 +283,7 @@ export default function StationPage() {
         .eq("transfer_date", date)
         .or(`from_station.eq.${station},to_station.eq.${station}`)
         .order("created_at"),
-      supabase.from("intermediate_recipes").select("intermediate_id, component_id, qty_per_output, sort_order"),
+      supabase.from("intermediate_recipes").select("intermediate_id, component_id, qty_per_output, sort_order, loss_applied"),
     ])
     setDisplayRecipes(recipeRes.data ?? [])
     const { active: batchRows, demand: demandRows } = splitDailyProductionBatches(
@@ -1106,6 +1107,11 @@ export default function StationPage() {
       prepSummary.push({
         ...m,
         total: normAtOwn(id),
+        warehouseQty: ownWork.filter(w => w.material_id === id).reduce((sum, w) => sum + Number(w.qty) * (1 + Number(mat?.loss_pct ?? 0)), 0)
+          + [...intByIntermediate.entries()].reduce((sum, [intermediateId, e]) => sum + e.components.filter(c => c.component_id === id).reduce((subtotal, c) => {
+            const recipe = displayRecipes.find(r => r.intermediate_id === intermediateId && r.component_id === id && r.sort_order === c.sort_order)
+            return subtotal + Number(c.qty) * (recipe?.loss_applied ? 1 : 1 + Number(mat?.loss_pct ?? 0))
+          }, 0), 0),
         given: given.get(id) ?? 0,
         lossPct: mat?.kind === "raw" ? Number(mat.loss_pct) : null,
       })

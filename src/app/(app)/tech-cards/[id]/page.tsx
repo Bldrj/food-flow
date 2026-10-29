@@ -776,6 +776,7 @@ export default function TechCardDetailPage() {
                 material_id: i.material_id,
                 brutto_qty: i.brutto_qty,
                 netto_qty: i.netto_qty,
+                rice_cooked_share: i.rice_cooked_share,
                 stations: i.stations,
                 sort_order: i.sort_order,
               })),
@@ -1134,6 +1135,7 @@ export default function TechCardDetailPage() {
                   group.items.map((item) => {
                     // Хорогдол материалын тогтмол шинж (materials.loss_pct)
                     const loss = Number(item.material?.loss_pct ?? 0)
+                    const derivedRice = item.rice_cooked_share != null
                     return (
                       <TableRow key={item.id}>
                         <TableCell className="font-medium">
@@ -1150,6 +1152,8 @@ export default function TechCardDetailPage() {
                               step="any"
                               className="h-8 w-24"
                               value={editNorms[item.id] ?? ""}
+                              disabled={derivedRice}
+                              title={derivedRice ? "Гарц болон /materials дахь хувиас автоматаар тооцно" : undefined}
                               onChange={(e) =>
                                 setEditNorms((q) => ({
                                   ...q,
@@ -1172,14 +1176,14 @@ export default function TechCardDetailPage() {
                           </div>
                         </TableCell>
                         <TableCell className="text-muted-foreground">
-                          {loss > 0 ? (
+                          {loss !== 0 || derivedRice ? (
                             <>
-                              {Number((loss * 100).toFixed(2))}%
+                              {Number((loss * 100).toFixed(4))}%
                               {item.material && (
                                 <span className="ml-1 text-xs">
                                   (агуулахаас{" "}
                                   {formatItemQty(
-                                    item.netto_qty * (1 + loss),
+                                    derivedRice ? item.netto_qty : item.netto_qty * (1 + loss),
                                     item.material.base_unit,
                                   )}
                                   )

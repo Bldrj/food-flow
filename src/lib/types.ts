@@ -350,6 +350,7 @@ export type TechCardItem = {
   group_id: string
   material_id: string
   brutto_qty: number // агуулахаас авах, base_unit-ээр
+  rice_cooked_share?: number | null // dry rice derived from output × share × material percentage
   netto_qty: number // үйлдвэрлэлд орох, base_unit-ээр (≤ brutto)
   // Дамжлагын зам (дараалалтай, migration 0015). Нэг материал хэдэн ч
   // цехээр дамжиж болно. NULL = зам хараахан тодорхойлогдоогүй — тухайн

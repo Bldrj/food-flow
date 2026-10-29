@@ -1,6 +1,5 @@
 // Cooked portion norms: Master-v2.xlsx, «халуун туслах » (2026-10-01).
 // These are planning norms, not warehouse issues or recorded production.
-export const RICE_YIELD = 2.25
 export const RICE_TYPES = {
   plain: "Энгийн будаа",
   kimbap: "Кимбаб будаа",
@@ -43,7 +42,7 @@ export type RiceDetail = {
 }
 export function riceProductionSummary(batches: readonly RiceBatch[]) {
   const groups = (Object.keys(RICE_TYPES) as RiceType[]).map(type => ({
-    type, name: RICE_TYPES[type], cookedKg: 0, dryKg: 0, details: [] as RiceDetail[],
+    type, name: RICE_TYPES[type], cookedKg: 0, details: [] as RiceDetail[],
   }))
   const pending: RiceDetail[] = []
   const unknown: string[] = []
@@ -73,6 +72,5 @@ export function riceProductionSummary(batches: readonly RiceBatch[]) {
       group.cookedKg += detail.cookedKg
     }
   }
-  for (const group of groups) group.dryKg = group.cookedKg / RICE_YIELD
   return { groups, pending, unknown }
 }

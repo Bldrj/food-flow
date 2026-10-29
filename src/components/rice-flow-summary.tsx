@@ -14,7 +14,7 @@ export function RiceFlowSummary({ rows, onTransfer, actual, date, actor, onProdu
   const ready = rows.every(row => row.material)
   return <section className="space-y-3" aria-label="Будааны үйлдвэрлэл, шилжүүлэг">
     <h2 className="text-lg font-semibold">Будааны үйлдвэрлэл, шилжүүлэг</h2>
-    <p className="text-sm text-muted-foreground">Технологийн картын өдрийн нийт хэрэгцээ. Өмнөх үлдэгдлийг хассан агшаах нормыг 2.25-д хувааж хуурай будааг тооцно. Шилжүүлгийг бодит агшаасан жингээр бүртгэнэ.</p>
+    <p className="text-sm text-muted-foreground">Технологийн картын өдрийн нийт хэрэгцээ. Хуурай будааны хэрэгцээг жор болон материалын хорогдлын хувиар нэг удаа тооцно. Шилжүүлгийг бодит агшаасан жингээр бүртгэнэ.</p>
     {!ready && <p role="alert" className="rounded-lg border border-amber-500 p-3 text-sm">Будааны 4 төрлийн холбоосыг өгөгдлийн санд хэрэгжүүлж дуусаагүй тул доорх дүнг эцсийн тооцоо гэж ашиглахгүй. Шилжүүлэх үйлдлийг түр хаасан.</p>}
     <div className="grid gap-4 lg:grid-cols-2">{rows.map((row, i) => {
       const physical = actual.find(a => a.material_id === row.material?.id)
@@ -24,7 +24,7 @@ export function RiceFlowSummary({ rows, onTransfer, actual, date, actor, onProdu
         <div className="text-sm">
           <p>Нийт хэрэгцээ: <strong>{qty(row.grossKg)} кг</strong></p>
           <p>Өмнөх үлдэгдэл: {qty(row.leftoverKg)} кг</p>
-          <p>Агшаах норм: <strong>{qty(row.cookKg)} кг</strong> · Хуурай: {qty(row.cookKg / 2.25)} кг</p>
+          <p>Агшаах норм: <strong>{qty(row.cookKg)} кг</strong> · Хуурай: {row.dryKg === null ? "Жорын орц тодорхойгүй" : `${qty(row.dryKg)} кг`}</p>
         </div>
         {physical ? <div className="space-y-1 rounded-md bg-muted p-3 text-sm">
           <p>Эхний үлдэгдэл: {qty(Number(physical.opening_kg))} кг</p>

@@ -44,6 +44,7 @@ export type PrepSummaryRow = {
   baseUnit: CanonicalUnit
   total: number
   given: number // тухайн өдөр энэ цехээс аль хэдийн шилжүүлсэн
+  warehouseQty?: number // already-adjusted recipe ingredients must not receive the percentage twice
   lossPct: number | null // бэлдэцэд хамаарахгүй (агуулахаас авдаггүй)
 }
 
@@ -92,7 +93,7 @@ function summaryValues(r: PrepSummaryRow) {
     total: q(r.total),
     given: r.given > 0 ? q(r.given) : null,
     rest: q(Math.max(r.total - r.given, 0)),
-    warehouse: r.lossPct === null ? null : q(r.total * (1 + r.lossPct)),
+    warehouse: r.lossPct === null ? null : q(r.warehouseQty ?? r.total * (1 + r.lossPct)),
   }
 }
 
