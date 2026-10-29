@@ -217,6 +217,7 @@ export default function StationPage() {
   const [reqSaving, setReqSaving] = React.useState(false)
   const [reqError, setReqError] = React.useState<string | null>(null)
   // Сонгосон бэлдэцийн жор (задаргааны урьдчилсан харагдац + insert)
+  const [displayRecipes, setDisplayRecipes] = React.useState<(RecipeRow & { intermediate_id: string; sort_order: number })[]>([])
   const [reqRecipe, setReqRecipe] = React.useState<RecipeRow[]>([])
 
   // Шилжилтүүд (0028) + шилжүүлэх диалог
@@ -244,7 +245,7 @@ export default function StationPage() {
     setLoading(true)
     // station_work-ийг бүх цехээр нь авна: савлагаанд материал бүрийн
     // өмнөх цехийг (замыг) мэдэх шаардлагатай
-    const [batchRes, workRes, intRes, matRes, reqRes, trRes] =
+    const [batchRes, workRes, intRes, matRes, reqRes, trRes, recipeRes] =
       await Promise.all([
       supabase
         .from("production_batches")
@@ -281,7 +282,9 @@ export default function StationPage() {
         .eq("transfer_date", date)
         .or(`from_station.eq.${station},to_station.eq.${station}`)
         .order("created_at"),
+      supabase.from("intermediate_recipes").select("intermediate_id, component_id, qty_per_output, sort_order"),
     ])
+    setDisplayRecipes(recipeRes.data ?? [])
     const { active: batchRows, demand: demandRows } = splitDailyProductionBatches(
       (batchRes.data ?? []) as BatchRow[],
     )
@@ -409,39 +412,25 @@ export default function StationPage() {
     m.set(w.material_id, (m.get(w.material_id) ?? 0) + Number(w.qty))
     intUseByBatch.set(w.batch_id, m)
   }
-  // Нэг бэлдэц хэд хэдэн хоолонд орж болох тул ХАМГИЙН ИХ хэрэглэдэг
-  // хоолонд нь нэг л удаа хавсаргана — давхар хийхээс сэргийлж бүтэн
-  // өдрийн хэмжээгээр харуулж, бусад хоолыг тайлбарт нэрлэнэ
-  const intOwner = new Map<string, string>()
-  const intAlsoFor = new Map<string, string[]>()
-  {
-    const byMat = new Map<
-      string,
-      { batchId: string; qty: number; product: string }[]
-    >()
-    for (const [batchId, uses] of intUseByBatch) {
-      const product =
-        batches.find((b) => b.id === batchId)?.product?.name ?? ""
-      for (const [matId, qty] of uses) {
-        const list = byMat.get(matId) ?? []
-        list.push({ batchId, qty, product })
-        byMat.set(matId, list)
+  // Expand nested recipes per meal; station rows repeat across route stops.
+  for (const uses of intUseByBatch.values()) {
+    const expand = (id: string, qty: number, path: Set<string>) => {
+      if (path.has(id)) return
+      const next = new Set(path).add(id)
+      for (const recipe of displayRecipes.filter(r => r.intermediate_id === id)) {
+        if (materialById.get(recipe.component_id)?.kind !== "intermediate" || next.has(recipe.component_id)) continue
+        const childQty = qty * Number(recipe.qty_per_output)
+        uses.set(recipe.component_id, (uses.get(recipe.component_id) ?? 0) + childQty)
+        expand(recipe.component_id, childQty, next)
       }
     }
-    for (const [matId, list] of byMat) {
-      list.sort((a, b) => b.qty - a.qty)
-      intOwner.set(matId, list[0].batchId)
-      intAlsoFor.set(
-        matId,
-        list.slice(1).map((x) => x.product).filter(Boolean),
-      )
-    }
+    for (const [id, qty] of [...uses]) expand(id, qty, new Set())
   }
+  const intAlsoFor = new Map<string, string[]>()
   const intIdsForBatch = (batchId: string) =>
-    [...intByIntermediate.keys()].filter((id) => intOwner.get(id) === batchId)
-  // Хоолонд хавсрагдаагүй бэлдэц (хэрэглээний мөр нь цехгүй бүлэгт байх г.м.)
+    [...intByIntermediate.keys()].filter(id => (intUseByBatch.get(batchId)?.get(id) ?? 0) > 0)
   const orphanIntIds = [...intByIntermediate.keys()].filter(
-    (id) => !intOwner.has(id),
+    id => ![...intUseByBatch.values()].some(uses => uses.has(id)),
   )
 
   // Шилжилтүүд (0028): ирснийг материалаар нь бүлэглэж өөрийн цехийн
@@ -1014,7 +1003,7 @@ export default function StationPage() {
       const use = batch ? (intUseByBatch.get(batch.id)?.get(id) ?? 0) : 0
       const also = intAlsoFor.get(id) ?? []
       const notes = [
-        ...(Number(any.leftover_qty) > 0
+        ...(!batch && Number(any.leftover_qty) > 0
           ? [
               `үлдэгдэл ${formatWorkQty(
                 Number(any.leftover_qty),
@@ -1030,15 +1019,16 @@ export default function StationPage() {
         name:
           any.intermediate_name +
           (notes.length > 0 ? ` /${notes.join("; ")}/` : ""),
-        rows: e.components.map((c) => ({
-          name: c.component_name ?? "—",
-          perPortion:
-            batch && net > 0 && use > 0
-              ? ((Number(c.qty) / net) * use) / Number(batch.total_qty)
-              : null,
-          total: Number(c.qty),
-          baseUnit: (c.component_unit ?? "kg") as CanonicalUnit,
-        })),
+        rows: e.components.map((c) => {
+          const recipe = displayRecipes.find(r => r.intermediate_id === id && r.component_id === c.component_id && r.sort_order === c.sort_order)
+          const ratio = recipe ? Number(recipe.qty_per_output) : net > 0 ? Number(c.qty) / net : 0
+          return {
+            name: c.component_name ?? "—",
+            perPortion: batch ? ratio * use / Number(batch.total_qty) : null,
+            total: batch ? ratio * use : Number(c.qty),
+            baseUnit: (c.component_unit ?? "kg") as CanonicalUnit,
+          }
+        }),
       }
     }
     for (const b of relevantBatches) {
@@ -1160,19 +1150,28 @@ export default function StationPage() {
 
   // Нэг бэлдэцийн блок: гарц/бэлтгэх хэмжээ + жорын орцууд + шилжүүлэх товч.
   // Хоолны картын дотор ба хавсрагдаагүй бэлдэцийн хэсэгт хоёуланд нь
-  function renderIntermediate(id: string) {
+  function renderIntermediate(id: string, batchId?: string) {
     const e = intByIntermediate.get(id)
     if (!e) return null
     const any = e.output ?? e.components[0]
     if (!any) return null
     const also = intAlsoFor.get(id) ?? []
+    const mealQty = batchId ? intUseByBatch.get(batchId)?.get(id) ?? 0 : null
+    const componentQty = (c: StationIntermediateRow) => {
+      if (mealQty === null) return Number(c.qty)
+      const recipe = displayRecipes.find(r => r.intermediate_id === id && r.component_id === c.component_id && r.sort_order === c.sort_order)
+      return recipe ? mealQty * Number(recipe.qty_per_output)
+        : Number(c.net_qty) > 0 ? mealQty * Number(c.qty) / Number(c.net_qty) : null
+    }
     return (
       <div key={id}>
         <p className="flex flex-wrap items-center gap-2 text-lg">
           <ImageThumb url={materialById.get(id)?.image_url} />
           <span className="font-semibold">{any.intermediate_name}</span>
           <span className="font-semibold">
-            {e.output
+            {mealQty !== null
+              ? `Энэ хоолны хэрэгцээ ${formatWorkQty(mealQty, any.intermediate_unit)}`
+              : e.output
               ? `гаргах ${formatWorkQty(
                   Number(e.output.qty),
                   e.output.intermediate_unit,
@@ -1182,7 +1181,7 @@ export default function StationPage() {
                   any.intermediate_unit,
                 )}-д зориулж бэлтгэнэ`}
           </span>
-          {Number(any.leftover_qty) > 0 && (
+          {mealQty === null && Number(any.leftover_qty) > 0 && (
             <span className="text-sm text-muted-foreground">
               (хэрэгцээ{" "}
               {formatWorkQty(Number(any.gross_qty), any.intermediate_unit)} −
@@ -1195,7 +1194,7 @@ export default function StationPage() {
               (нийт хэмжээ — {also.join(", ")} хоолонд ч ордог)
             </span>
           )}
-          {(givenByMat.get(id) ?? 0) > 0 && (
+          {mealQty === null && (givenByMat.get(id) ?? 0) > 0 && (
             <span className="text-sm text-emerald-600">
               өгсөн{" "}
               {formatWorkQty(givenByMat.get(id) ?? 0, any.intermediate_unit)} ✓
@@ -1224,7 +1223,7 @@ export default function StationPage() {
                 </span>
                 <span className="flex items-center gap-2">
                   <span className="font-semibold">
-                    {formatWorkQty(Number(c.qty), c.component_unit ?? "kg")}
+                    {componentQty(c) === null ? "Жорын хэмжээ тодорхойгүй" : formatWorkQty(componentQty(c)!, c.component_unit ?? "kg")}
                   </span>
                   {c.component_id && (
                     <Button
@@ -1565,13 +1564,14 @@ export default function StationPage() {
 
       {/* Хоолонд хавсрагдаагүй бэлдэц — хэрэглээний мөр нь цехгүй бүлэгт
           байвал энд гарна (өгөгдөл чимээгүй алдагдахаас сэргийлж) */}
-      {!loading && batchTab === "todo" && orphanIntIds.length > 0 && (
+      {!loading && batchTab === "todo" && intByIntermediate.size > 0 && (
         <div className="rounded-lg border">
           <div className="border-b px-4 py-3">
-            <p className="font-medium">Бэлдэц</p>
+            <p className="font-medium">Өдрийн бэлдэцийн нийт хэрэгцээ</p>
+            <p className="text-sm text-muted-foreground">Бүх хоолны нийлбэр. Үлдэгдлийг хассан бэлтгэх хэмжээ болон орцууд.</p>
           </div>
           <div className="grid gap-4 p-4">
-            {orphanIntIds.map((id) => renderIntermediate(id))}
+            {[...intByIntermediate.keys()].map((id) => renderIntermediate(id))}
           </div>
         </div>
       )}
@@ -1658,7 +1658,7 @@ export default function StationPage() {
                   тул хамгийн их хэрэглэдэг хоолондоо нэг л удаа гарна) */}
               {intIdsForBatch(b.id).length > 0 && (
                 <div className="grid gap-4 border-b bg-muted/30 p-4">
-                  {intIdsForBatch(b.id).map((id) => renderIntermediate(id))}
+                  {intIdsForBatch(b.id).map((id) => renderIntermediate(id, b.id))}
                 </div>
               )}
 
