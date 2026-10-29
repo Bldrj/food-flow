@@ -317,7 +317,7 @@ export default function TechCardDetailPage() {
             const unit = i.material?.base_unit
             const v =
               unit === "kg" || unit === "l"
-                ? Number((i.netto_qty * 1000).toFixed(3))
+                ? Number(((i.rice_cooked_share == null ? i.rice_cooked_qty ?? i.netto_qty : i.netto_qty) * 1000).toFixed(3))
                 : Number(i.netto_qty)
             return [i.id, String(v)]
           }),
@@ -663,7 +663,7 @@ export default function TechCardDetailPage() {
         ...q,
         [item.id]: String(
           unit === "kg" || unit === "l"
-            ? Number((item.netto_qty * 1000).toFixed(3))
+            ? Number(((item.rice_cooked_share == null ? item.rice_cooked_qty ?? item.netto_qty : item.netto_qty) * 1000).toFixed(3))
             : Number(item.netto_qty),
         ),
       }))
@@ -677,10 +677,12 @@ export default function TechCardDetailPage() {
     const stored = Number(
       (unit === "kg" || unit === "l" ? raw / 1000 : raw).toFixed(6),
     )
-    if (stored === Number(item.netto_qty)) return
+    if (stored === Number(item.rice_cooked_qty ?? item.netto_qty)) return
     const { error } = await supabase
       .from("tech_card_items")
-      .update({ netto_qty: stored, brutto_qty: stored })
+      .update(item.rice_quantity_basis === "cooked"
+        ? { rice_cooked_qty: stored }
+        : { netto_qty: stored, brutto_qty: stored })
       .eq("id", item.id)
     if (error) {
       setActionError(error.message)
@@ -777,6 +779,8 @@ export default function TechCardDetailPage() {
                 brutto_qty: i.brutto_qty,
                 netto_qty: i.netto_qty,
                 rice_cooked_share: i.rice_cooked_share,
+                rice_quantity_basis: i.rice_quantity_basis,
+                rice_cooked_qty: i.rice_cooked_qty,
                 stations: i.stations,
                 sort_order: i.sort_order,
               })),
@@ -1136,6 +1140,8 @@ export default function TechCardDetailPage() {
                     // Хорогдол материалын тогтмол шинж (materials.loss_pct)
                     const loss = Number(item.material?.loss_pct ?? 0)
                     const derivedRice = item.rice_cooked_share != null
+                    const rice = item.rice_quantity_basis != null
+                    const cookedInput = item.rice_quantity_basis === "cooked" && !derivedRice
                     return (
                       <TableRow key={item.id}>
                         <TableCell className="font-medium">
@@ -1143,6 +1149,27 @@ export default function TechCardDetailPage() {
                           <span className="font-mono text-xs text-muted-foreground">
                             {item.material?.code}
                           </span>
+                          {rice && <div className="mt-1 text-xs text-muted-foreground">
+                            {item.rice_quantity_basis === "unconfirmed" ? "⚠ Хуурай/агшаасан хэмжээг баталгаажуулна" : derivedRice ? "Гарцаас тооцсон хуурай орц" : cookedInput ? "Агшаасан хэмжээнээс тооцно" : "Хуурай орц — дахин хөрвүүлэхгүй"}
+                          </div>}
+                          {rice && !derivedRice && <select
+                            aria-label="Будааны орцын төрөл"
+                            className="mt-1 rounded border bg-background p-1 text-xs"
+                            value={item.rice_quantity_basis ?? "dry"}
+                            onChange={async (e) => {
+                              const basis = e.target.value
+                              const { error } = await supabase.from("tech_card_items").update({
+                                rice_quantity_basis: basis,
+                                rice_cooked_qty: basis === "cooked" ? item.netto_qty : null,
+                              }).eq("id", item.id)
+                              if (error) setActionError(error.message)
+                              else load()
+                            }}
+                          >
+                            <option value="dry">Оруулсан жин: хуурай</option>
+                            <option value="cooked">Оруулсан жин: агшаасан</option>
+                            {item.rice_quantity_basis === "unconfirmed" && <option value="unconfirmed">Тодорхойгүй</option>}
+                          </select>}
                         </TableCell>
                         <TableCell>
                           <div className="flex items-center gap-1">
@@ -1176,14 +1203,14 @@ export default function TechCardDetailPage() {
                           </div>
                         </TableCell>
                         <TableCell className="text-muted-foreground">
-                          {loss !== 0 || derivedRice ? (
+                          {loss !== 0 || rice ? (
                             <>
                               {Number((loss * 100).toFixed(4))}%
                               {item.material && (
                                 <span className="ml-1 text-xs">
                                   (агуулахаас{" "}
                                   {formatItemQty(
-                                    derivedRice ? item.netto_qty : item.netto_qty * (1 + loss),
+                                    rice && item.rice_quantity_basis !== "unconfirmed" ? item.netto_qty : item.netto_qty * (1 + loss),
                                     item.material.base_unit,
                                   )}
                                   )

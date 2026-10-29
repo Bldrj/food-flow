@@ -1107,7 +1107,7 @@ export default function StationPage() {
       prepSummary.push({
         ...m,
         total: normAtOwn(id),
-        warehouseQty: ownWork.filter(w => w.material_id === id).reduce((sum, w) => sum + Number(w.qty) * (1 + Number(mat?.loss_pct ?? 0)), 0)
+        warehouseQty: ownWork.filter(w => w.material_id === id).reduce((sum, w) => sum + Number(w.qty) * (w.loss_applied ? 1 : 1 + Number(mat?.loss_pct ?? 0)), 0)
           + [...intByIntermediate.entries()].reduce((sum, [intermediateId, e]) => sum + e.components.filter(c => c.component_id === id).reduce((subtotal, c) => {
             const recipe = displayRecipes.find(r => r.intermediate_id === intermediateId && r.component_id === id && r.sort_order === c.sort_order)
             return subtotal + Number(c.qty) * (recipe?.loss_applied ? 1 : 1 + Number(mat?.loss_pct ?? 0))
@@ -1314,6 +1314,12 @@ export default function StationPage() {
       </div>
 
       {error && <p className="text-sm text-destructive">{error}</p>}
+      {ownWork.some(w => w.rice_quantity_basis === "unconfirmed") && (
+        <p className="rounded border border-amber-300 p-3 text-sm text-amber-700">
+          Будааны 90 г орц хуурай эсвэл агшаасан эсэх нь баталгаажаагүй жор байна.
+          Технологийн карт дээр орцын төрлийг сонгох хүртэл өмнөх тооцоо хэвээр байна.
+        </p>
+      )}
 
       {/* Миний нэхэмжлэлүүд (хүлээгдэж буй + өнөөдрийн түүх) — 0032: бүгд
           няравт очдог тул «ирсэн нэхэмжлэл» гэж байхгүй */}

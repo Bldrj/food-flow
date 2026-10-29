@@ -23,3 +23,15 @@ Expected snapshot results: Teftel 190 g cooked → 84.444 g dry (six-decimal kg 
 Live application: compared daily_material_needs in SQL Editor, applied transaction successfully on utcrmifewzqdeybukmbz, verified REST readback: loss_pct=-0.555556; Teftel netto_qty=0.084444; plain rice dry=168.49655317136842 kg. Warehouse white rice issue_need=212.91423637136842 kg includes other blends and direct rice uses, so it is not the same as plain rice alone. UI deployment follows through GitHub main → Vercel.
 
 Do not rerun the deployment SQL; its trigger/constraint creation intentionally stops duplicate application inside the transaction.
+
+## All-grain extension (2026-10-29)
+
+`supabase/prod-all-rice-percentage.sql` extends the applied migration. Recipe rows now explicitly distinguish `dry`, `cooked`, and `unconfirmed` input bases. Stored netto/brutto remain dry quantities. Cooked inputs retain a separate cooked amount, and every material's own percentage drives conversion exactly once. Explicit dry inputs bypass conversion. Known raw rice codes default to dry for new rows; the tech-card editor lets users choose a cooked basis. Copying cards preserves conversion metadata.
+
+Black rice and buckwheat percentages remain 0%, as requested. Their current dry norms (2.581g and 8g) are preserved as equivalent cooked bases at 0%, rather than silently changing their mixing proportions. This is a bookkeeping migration, not a physical yield validation. A future percentage change refreshes these quantities once.
+
+Oyakodon 350g is cooked: Master-v2's tab `16. Туна кимчижигэ` actually has the title Oyakodon, E22=350, C22=E22/2.25. It now consumes BLD-018, so its demand reaches shared rice production. Kimbap's missing white-rice component is restored, retaining its existing 70g cooked output; white rice is confirmed in both handroll source recipes. No seasoning norms are invented.
+
+Two rows remain **unconfirmed**: Tagturitan and Kimchijjigae 90g. The available workbooks do not contain these recently added rice recipes. Tagturitan has no portion yield; Kimchijjigae has a 580g whole-meal yield but no separate rice yield, which cannot establish whether 90g is cooked or dry. Their quantities and prior calculations are preserved, with a visible warning and explicit basis selector. They require kitchen/source confirmation; do not describe every recipe as verified until resolved.
+
+Validation: TypeScript and PostgreSQL integration tests pass, including a fresh production snapshot, percentage changes for non-white grain, unchanged dry inputs, cooked output changes, kimbap expansion, Oyakodon routing, and daily warehouse/recipe equality for confirmed rows. Run `CURRENT_RICE_SNAPSHOT=/path/to/current.json node scripts/test-all-rice-percentage.mjs` with the same base snapshot/runtime prerequisites above.

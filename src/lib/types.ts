@@ -350,6 +350,8 @@ export type TechCardItem = {
   group_id: string
   material_id: string
   brutto_qty: number // агуулахаас авах, base_unit-ээр
+  rice_quantity_basis?: "dry" | "cooked" | "unconfirmed" | null
+  rice_cooked_qty?: number | null
   rice_cooked_share?: number | null // dry rice derived from output × share × material percentage
   netto_qty: number // үйлдвэрлэлд орох, base_unit-ээр (≤ brutto)
   // Дамжлагын зам (дараалалтай, migration 0015). Нэг материал хэдэн ч
@@ -409,6 +411,8 @@ export type StationWorkRow = {
   material_name: string
   material_code: string
   base_unit: CanonicalUnit
+  loss_applied?: boolean
+  rice_quantity_basis?: "dry" | "cooked" | "unconfirmed" | null
   item_sort: number
   qty: number
   station: StationCode
